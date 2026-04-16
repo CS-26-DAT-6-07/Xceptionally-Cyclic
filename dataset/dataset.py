@@ -15,6 +15,7 @@ SIZE_IMG = 299
 class FedISIC2019_Dataset():
     fds = None
     labels = None
+    labels_for_the_labels = ["mel", "mel-nev", "bcc", "ak", "bk", "df", "vl", "scc"]
 
     def __init__(self):
         #Loading Fed-ISIC2019 via flwr_datasets
@@ -34,19 +35,28 @@ class FedISIC2019_Dataset():
         return full_train, full_test
     
     def plot_centralized_train_class_distribution(self):
-        full_train = self.centralized_dataset()
+        full_train, _ = self.centralized_dataset()
         label_counter = [0, 0, 0, 0, 0, 0, 0, 0]
         
         for sample in full_train:
             label_on_sample = sample["label"]
             label_counter[label_on_sample] += 1
         
-        
+        colors = ['red', 'gold', 'limegreen', 'dodgerblue', 'orange', 'violet', 'tomato', 'teal']
+        plt.bar(self.labels_for_the_labels, label_counter, color=colors)
+        plt.title("Label distribution for the centralized Fed-ISIC2019")
+        plt.xlabel("labels_for_the_labels")
+        plt.ylabel("Number of Images")
+        plt.show()
+
+        return
 
 
 
+dataset = FedISIC2019_Dataset()
 
+#full_train, full_test = dataset.centralized_dataset()
 
-full_train, full_test = FedISIC2019_Dataset().centralized_dataset()
+#print(full_train[0]["label"])
 
-print(full_train[0]["label"])
+dataset.plot_centralized_train_class_distribution()
