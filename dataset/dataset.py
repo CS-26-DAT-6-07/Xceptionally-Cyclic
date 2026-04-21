@@ -58,18 +58,6 @@ class FedISIC2019_Dataset():
     def plot_in_partitions_train_class_distribution(self):
         partitioner = self.fds.partitioners["train"]
 
-        #labels_for_labels to plot compatible dict
-        lfl_dict = {
-                    0: self.labels_for_the_labels[0], 
-                    1: self.labels_for_the_labels[1],
-                    2: self.labels_for_the_labels[2],
-                    3: self.labels_for_the_labels[3],
-                    4: self.labels_for_the_labels[4],
-                    5: self.labels_for_the_labels[5],
-                    6: self.labels_for_the_labels[6],
-                    7: self.labels_for_the_labels[7]
-                }
-
         fig, ax, df = plot_label_distributions(
             partitioner,
             label_name="label",
@@ -102,6 +90,27 @@ class FedISIC2019_Dataset():
                 ha="center",
                 va="bottom"
             )
+
+        #Fixing the legend
+        old_legend = fig.legends[0]
+        handles = old_legend.legend_handles
+
+        old_texts = [t.get_text() for t in old_legend.get_texts()]
+        print("Original legend order:", old_texts)
+        reverse_lfl_list = self.labels_for_the_labels
+        reverse_lfl_list.reverse()
+        print("Your labels order:", reverse_lfl_list)
+
+        ax.legend(
+            handles,
+            reverse_lfl_list,
+            loc="center right",
+            bbox_to_anchor=(1.01,0.5),
+            borderaxespad=-10
+        )
+
+        fig.legends.clear()
+        fig.set_constrained_layout(True)
 
         plt.show()
 
