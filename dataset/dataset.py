@@ -7,6 +7,7 @@ from collections import defaultdict
 from torch.utils.data import Dataset, DataLoader
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import NaturalIdPartitioner
+from flwr_datasets.visualization import plot_label_distributions
 
 #Constants
 SIZE_IMG = 299
@@ -54,6 +55,59 @@ class FedISIC2019_Dataset():
 
         return
     
+    def plot_in_partitions_train_class_distribution(self):
+        partitioner = self.fds.partitioners["train"]
+
+        #labels_for_labels to plot compatible dict
+        lfl_dict = {
+                    0: self.labels_for_the_labels[0], 
+                    1: self.labels_for_the_labels[1],
+                    2: self.labels_for_the_labels[2],
+                    3: self.labels_for_the_labels[3],
+                    4: self.labels_for_the_labels[4],
+                    5: self.labels_for_the_labels[5],
+                    6: self.labels_for_the_labels[6],
+                    7: self.labels_for_the_labels[7]
+                }
+
+        fig, ax, df = plot_label_distributions(
+            partitioner,
+            label_name="label",
+            plot_type="bar",
+            size_unit="absolute",
+            partition_id_axis="x",
+            legend=True,
+            verbose_labels=True,
+            title="Per Partition Labels Distribution"
+        )
+
+        #Adding sample counts per partitions to the figure
+        partitions_sample_count_list = []
+        for i_partition in range(6):
+            partition_number_of_samples = 0
+
+            for j_label in range(8):
+                partition_number_of_samples += int(df.loc[i_partition, str(j_label)])
+            
+            partitions_sample_count_list.append(partition_number_of_samples)
+            partition_number_of_samples = 0
+                
+        print(df)
+        print(ax.patches[2].get_height())
+        
+        for partition_total in partitions_sample_count_list:
+            x_center = partition_total / 2
+            ax.text(
+                x_center,
+                partition_total,
+                str(partition_total),
+                fontsize=100
+            )
+
+        plt.show()
+
+        return
+    
     def apply_oversampling_train_transform(self, pil_img):
         if self.seed != None:
             np.random.seed(self.seed)
@@ -80,6 +134,8 @@ class FedISIC2019_Dataset():
         )
 
         return tensor
+    
+
 
 
     
@@ -93,8 +149,16 @@ class FedISIC2019_Dataset():
 
 dataset = FedISIC2019_Dataset(None)
 
+#print(dataset.fds.partitioners["test"].dataset)
+
+#fta, ftt = dataset.centralized_dataset()
+
+#print(fta)
+
 #full_train, full_test = dataset.centralized_dataset()
 
 #print(full_train[0]["label"])
 
 dataset.plot_centralized_train_class_distribution()
+
+dataset.plot_in_partitions_train_class_distribution()
