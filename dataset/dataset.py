@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 import torch
 import albumentations
 import csv
+import datasets
 from collections import defaultdict
+
 from torch.utils.data import Dataset, DataLoader
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import NaturalIdPartitioner
@@ -13,22 +15,6 @@ from flwr_datasets.visualization import plot_label_distributions
 
 #Constants
 SIZE_IMG = 299
-
-class CustomDataset(Dataset):
-    def __init__(self, list, transform = None):
-        self.list = list
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.list)
-    
-    def __getitem__(self, index):
-        item = self.list[index]
-        img = item["image"]
-        if(self.transform):
-            img = self.transform(item["image"])
-        return img, item["label"]
-
 
 class FedISIC2019_Dataset():
     fds = None
@@ -102,6 +88,7 @@ class FedISIC2019_Dataset():
             if(i == representative):
                 for row in data[representative]:
                     tempImg = self.__to_torch_tensor(row['image'])
+
                     new_train[i].append({"center":representative,"image":tempImg ,"label":row["label"]})
                 continue    
 
@@ -128,14 +115,12 @@ class FedISIC2019_Dataset():
                     for x in range(0,temp.num_rows):
                         if(x not in rmv):
                             new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(temp[x]["image"])})
-            
+            data[i] = datasets.Dataset.from_list(new_train[i])
         if(not quiet):
             print("augmenting complete")
         
-        datasets = [CustomDataset(data) for data in new_train]
-        
-        
-        return [DataLoader(dataset) for dataset in datasets]
+
+        return data
        
     def __calc_distr(self, num_labels, total_examples):
         return [x/total_examples for x in num_labels]
