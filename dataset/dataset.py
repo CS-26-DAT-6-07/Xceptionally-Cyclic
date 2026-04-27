@@ -6,6 +6,7 @@ import torch
 import albumentations
 import csv
 import datasets
+import multiprocessing
 from collections import defaultdict
 
 from torch.utils.data import Dataset, DataLoader
@@ -194,7 +195,7 @@ class FedISIC2019_Dataset():
             np.random.seed(self.seed)
         
         transform = albumentations.Compose([
-            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0, value=0),
+            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
             albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
             albumentations.Normalize(normalization="min_max_per_channel")
         ])
@@ -244,8 +245,75 @@ class FedISIC2019_Dataset():
 
         return tensor
     
-    def federated_dataset_no_augments(self):
-        pass
+    def generate_dataloader(self, partition_dataset):
+        if self.seed == None:
+            print("No seed given to the dataset object")
+            exit(1)
+
+
+        transformation_method = self.apply_train_val_test_standard_transform
+        def transform_fn(batch):
+            #pytorch_tensor set to false since we got set_format("torch"). This becomes an object for refactoring at a later date
+            batch["image"] = [
+                transformation_method(img, pytorch_tensor=False)
+                for img in batch["image"]
+            ]
+            return batch
+        
+        partition_dataset.set_transform(transform_fn)
+        partition_dataset.set_format("torch")
+
+        partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
+        partition_train = partition_train_test["train"]
+        partition_test = partition_train_test["test"]
+
+
+        #Setting up the dataloader
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+
+        #Setting up shared list across processes
+        #mp_manager = multiprocessing.Manager()
+        train_worker_seeds = []
+        test_worker_seeds = []
+
+
+        def make_seed_worker(split_name, seeds_list):
+            def seed_worker(worker_id):
+                worker_seed = torch.initial_seed()
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+                seeds_list.append({"split": split_name, "worker_id": worker_id, "seed": worker_seed})
+            return seed_worker
+
+        dataloader_train = DataLoader(
+            partition_train,
+            batch_size=32,
+            shuffle=True,
+            generator=generator,
+            worker_init_fn=make_seed_worker("train", train_worker_seeds),
+            num_workers=0
+        )
+
+        dataloader_test = DataLoader(
+            partition_test,
+            batch_size=32,
+            shuffle=False,
+            worker_init_fn=make_seed_worker("test", test_worker_seeds),
+            num_workers=0
+        )
+
+        return dataloader_train, dataloader_test, {"train": list(train_worker_seeds), "test": list(test_worker_seeds)}
+    
+
+
+
+
+
+
+
+
+        
     
 
 
@@ -259,7 +327,7 @@ class FedISIC2019_Dataset():
 
 
 
-dataset = FedISIC2019_Dataset(0)
+dataset = FedISIC2019_Dataset(67)
 
 #print(dataset.fds.partitioners["test"].dataset)
 
@@ -269,10 +337,20 @@ dataset = FedISIC2019_Dataset(0)
 
 #full_train, full_test = dataset.centralized_dataset()
 
-#print(full_train[0]["label"])
+#print(full_train[0])
 
 #dataset.plot_centralized_train_class_distribution()
+#dataset.plot_centralized_train_class_distribution()
 
-#dataset.plot_in_partitions_train_class_distribution()
+##dataset.plot_in_partitions_train_class_distribution()
 dataset.augment_dataset(0)
+
+
+
+train_dataloader, test_dataloader, seed_logs = dataset.generate_dataloader(0)
+
+batch = next(iter(train_dataloader))
+print(batch["image"])
+print(batch["label"])
+print(seed_logs)
 
