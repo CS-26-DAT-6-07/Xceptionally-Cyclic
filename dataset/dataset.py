@@ -1,9 +1,13 @@
 import random
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import albumentations
+import csv
+import datasets
 from collections import defaultdict
+
 from torch.utils.data import Dataset, DataLoader
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import NaturalIdPartitioner
@@ -11,7 +15,6 @@ from flwr_datasets.visualization import plot_label_distributions
 
 #Constants
 SIZE_IMG = 299
-
 
 class FedISIC2019_Dataset():
     fds = None
@@ -55,6 +58,76 @@ class FedISIC2019_Dataset():
 
         return
     
+    def augment_dataset(self, representative):
+        return self.__apply_augmentations(representative=representative, quiet=False)
+         
+
+    def __apply_augmentations(self, representative, quiet = True):
+        amt_labels = 8
+
+        partitions = self.fds.partitioners["train"]
+        
+        data = [partitions.load_partition(i) for i in range(0,partitions.num_partitions)] 
+
+        num_labels = [[0 for i in range(0,amt_labels)] for i in range(0,partitions.num_partitions)]
+        if(not quiet):
+            print("Couting labels")
+        #Count labels for each of the partitions
+        for d in range(0, partitions.num_partitions):
+            for row in data[d]:
+                num_labels[d][row["label"]] += 1
+
+        #List of lists with the distributions per partition
+        distributions = [self.__calc_distr(num_labels[i],len(data[i])) for i in range(0,partitions.num_partitions)]
+
+        new_train = [[] for x in range(0,partitions.num_partitions)]
+        #For all partitions, we...
+        for i in range(0,partitions.num_partitions):
+            if(not quiet):
+                print(f"augmenting partition {i}")
+            if(i == representative):
+                for row in data[representative]:
+                    tempImg = self.__to_torch_tensor(row['image'])
+
+                    new_train[i].append({"center":representative,"image":tempImg ,"label":row["label"]})
+                continue    
+
+            missing_label_percentage = 0
+            #...add the missing_label_percentage of the labels that dont exist in the partition, then...
+            for j in [x for x in range(0,amt_labels) if np.isclose(distributions[i][x],0)]:
+                missing_label_percentage += distributions[representative][j]
+            #n = [0 for i in range(0, amt_labels)]
+            #...for the labels that do exist...
+            for j in [x for x in range(0,amt_labels) if not np.isclose(distributions[i][x],0)]:
+                #...calculate the number of pictures to add/remove from the set...
+                #Ratio (r) = desired ration of label/The_total_ratio_of_existing_labels_in_partition (1 - missing_label_percentage)
+                #Number of images to add or remove (n) = (r * all_samples_in_partition)/The_total_ratio_of_existing_labels_in_partition - number_of_n_label_img_in_partition
+                n = math.ceil((distributions[representative][j]/np.round((1 - missing_label_percentage)))*data[i].num_rows - num_labels[i][j])
+                
+                temp = data[i].filter(lambda e: e['label'] == j)
+                if(n > 0):
+                    new_train[i] = [{"center":i,"label":j,"image":self.__to_torch_tensor(row["image"])} for row in temp]
+                    elem = temp.select([np.random.randint(0,temp.num_rows) for _ in range(0, n)])
+                    for m in range(0, n):
+                        new_train[i].append({"center": i,"label":j,"image":self.apply_oversampling_train_transform(elem[m]["image"])})
+                elif(n < 0):
+                    rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
+                    for x in range(0,temp.num_rows):
+                        if(x not in rmv):
+                            new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(temp[x]["image"])})
+            data[i] = datasets.Dataset.from_list(new_train[i])
+        if(not quiet):
+            print("augmenting complete")
+        
+
+        return data
+       
+    def __calc_distr(self, num_labels, total_examples):
+        return [x/total_examples for x in num_labels]
+
+    def __to_torch_tensor(self, pil):
+        return torch.tensor(np.transpose(np.array(pil),(2,0,1)),dtype=torch.float32)
+
     def plot_in_partitions_train_class_distribution(self):
         partitioner = self.fds.partitioners["train"]
 
@@ -149,7 +222,7 @@ class FedISIC2019_Dataset():
             np.random.seed(self.seed)
         
         transform = albumentations.Compose([
-            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0, value=0),
+            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
             albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
             albumentations.RandomScale(0.07),
             albumentations.RandomRotate90(),
@@ -186,7 +259,7 @@ class FedISIC2019_Dataset():
 
 
 
-dataset = FedISIC2019_Dataset(None)
+dataset = FedISIC2019_Dataset(0)
 
 #print(dataset.fds.partitioners["test"].dataset)
 
@@ -198,6 +271,8 @@ dataset = FedISIC2019_Dataset(None)
 
 #print(full_train[0]["label"])
 
-dataset.plot_centralized_train_class_distribution()
+#dataset.plot_centralized_train_class_distribution()
 
-dataset.plot_in_partitions_train_class_distribution()
+#dataset.plot_in_partitions_train_class_distribution()
+dataset.augment_dataset(0)
+
