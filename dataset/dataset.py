@@ -61,7 +61,7 @@ class FedISIC2019_Dataset():
         return self.__apply_augmentations(representative=representative)
          
 
-    def __apply_augmentations(self, representative):
+    def __apply_augmentations(self, representative, quiet = True):
         amt_labels = 8
 
         partitions = self.fds.partitioners["train"]
@@ -69,7 +69,8 @@ class FedISIC2019_Dataset():
         data = [partitions.load_partition(i) for i in range(0,partitions.num_partitions)] 
 
         num_labels = [[0 for i in range(0,amt_labels)] for i in range(0,partitions.num_partitions)]
-        print("Couting labels")
+        if(not quiet):
+            print("Couting labels")
         #Count labels for each of the partitions
         for d in range(0, partitions.num_partitions):
             for row in data[d]:
@@ -81,7 +82,8 @@ class FedISIC2019_Dataset():
         new_train = [[] for x in range(0,partitions.num_partitions)]
         #For all partitions, we...
         for i in range(0,partitions.num_partitions):
-            print(f"augmenting partition {i}")
+            if(not quiet):
+                print(f"augmenting partition {i}")
             if(i == representative):
                 for row in data[representative]:
                     tempImg = self.__to_torch_tensor(row['image'])
@@ -110,7 +112,10 @@ class FedISIC2019_Dataset():
                     rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
                     for x in range(0,temp.num_rows):
                         if(x not in rmv):
+        
                             new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(temp[x]["image"])})
+        if(not quiet):
+            print("augmenting complete")
         return new_train
        
     def __calc_distr(self, num_labels, total_examples):
