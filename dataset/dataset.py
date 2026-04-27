@@ -71,25 +71,25 @@ class FedISIC2019_Dataset():
                 num_labels[d][row["label"]] += 1
 
         distributions = [self.__calc_distr(num_labels[i],len(data[i])) for i in range(0,partitions.num_partitions)]
-        
-        for i in [x for x in range(0,partitions.num_partitions) if x != representative]:
+
+        newTrain = []
+        for i in range(0,partitions.num_partitions):
+            if(i == representative):
+                for row in data[representative]:
+                    newTrain.append({"center":representative,"image":row["image"],"label":row["label"]})
             missing_label_percentage = 0
             for j in [x for x in range(0,amt_labels) if np.isclose(distributions[i][x],0)]:
                 missing_label_percentage += distributions[representative][j]
             #n = [0 for i in range(0, amt_labels)]
             for j in [x for x in range(0,amt_labels) if not np.isclose(distributions[i][x],0)]:
                 n = math.ceil((distributions[representative][j]/np.round((1 - missing_label_percentage)))*data[i].num_rows - num_labels[i][j])
-                print(n)
-                for _ in range(0, abs(n)):
-                    if(n > 0):
-                        print(1)
-                        temp = data[i].filter(lambda e: e['label'] == j)
-                        print(temp)
-                        elem = temp.select([np.random.randint(0,temp.num_rows)])
-                        self.fds.partitioners["train"].dataset = self.fds.partitioners.dataset.add_item({'image': self.apply_oversampling_train_transform()})
-                        
-                    elif(n < 0):
-                        print("uwu")
+                if(n > 0):
+                    temp = data[i].filter(lambda e: e['label'] == j)
+                    elem = temp.select([np.random.randint(0,temp.num_rows) for x in range(0, n)]).to_list()
+                    for row in elem:
+                        print("")          
+                elif(n < 0):
+                    print("uwu")
 
 
             
@@ -200,9 +200,6 @@ class FedISIC2019_Dataset():
 
 dataset = FedISIC2019_Dataset(0)
 
-print(dataset.fds.partitioners["train"].load_partition(0).num_rows)
-dataset.dup()
-print(dataset.fds.partitioners["train"].load_partition(0).num_rows)
 #print(dataset.fds.partitioners["test"].dataset)
 
 #fta, ftt = dataset.centralized_dataset()
@@ -216,4 +213,4 @@ print(dataset.fds.partitioners["train"].load_partition(0).num_rows)
 #dataset.plot_centralized_train_class_distribution()
 
 #dataset.plot_in_partitions_train_class_distribution()
-#dataset.augment_dataset(0)
+dataset.augment_dataset(0)
