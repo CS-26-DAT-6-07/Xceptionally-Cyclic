@@ -190,14 +190,13 @@ class FedISIC2019_Dataset():
 
         return
     
-    def apply_train_val_test_standard_transform(self, pil_img, pytorch_tensor: bool):
+    def apply_train_val_test_standard_transform(self, pil_img):
         if self.seed != None:
             np.random.seed(self.seed)
         
         transform = albumentations.Compose([
             albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
-            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
-            albumentations.Normalize(normalization="min_max_per_channel")
+            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG)
         ])
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
@@ -205,18 +204,8 @@ class FedISIC2019_Dataset():
         
         #Applying the transform
         augmented = transform(image=img_np)["image"]
-
-        #Trasposing the image into a Pytorch-friendly tensor
-        tensor = torch.tensor(
-            np.transpose(augmented, (2, 0, 1)),
-            dtype=torch.float32
-        )
-
-        #Return augmented in cases where the image isn't finished being transformed. It could be thrown into another transformation
-        if pytorch_tensor != True:
-            return augmented
         
-        return tensor
+        return augmented
 
     def apply_oversampling_train_transform(self, pil_img):
         if self.seed != None:
@@ -227,8 +216,7 @@ class FedISIC2019_Dataset():
             albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
             albumentations.RandomScale(0.07),
             albumentations.RandomRotate90(),
-            albumentations.ShiftScaleRotate(),
-            albumentations.Normalize(normalization="min_max_per_channel")
+            albumentations.ShiftScaleRotate()
         ])
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
@@ -237,36 +225,23 @@ class FedISIC2019_Dataset():
         #Applying the transform
         augmented = transform(image=img_np)["image"]
 
-        #Trasposing the image into a Pytorch-friendly tensor
-        tensor = torch.tensor(
-            np.transpose(augmented, (2, 0, 1)),
-            dtype=torch.float32
-        )
-
-        return tensor
+        return augmented
     
-    def generate_dataloader(self, partition_dataset):
+    def normalize_and_tensorify(self, transformed_img):
+        normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel"), albumentations.ToTensorV2()])
+        final_img = normalize(transformed_img)
+        return final_img
+
+
+
+    def generate_dataloader_for_dataset(self, partition_dataset):
         if self.seed == None:
             print("No seed given to the dataset object")
             exit(1)
 
-
-        transformation_method = self.apply_train_val_test_standard_transform
-        def transform_fn(batch):
-            #pytorch_tensor set to false since we got set_format("torch"). This becomes an object for refactoring at a later date
-            batch["image"] = [
-                transformation_method(img, pytorch_tensor=False)
-                for img in batch["image"]
-            ]
-            return batch
-        
-        partition_dataset.set_transform(transform_fn)
-        partition_dataset.set_format("torch")
-
         partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
         partition_train = partition_train_test["train"]
         partition_test = partition_train_test["test"]
-
 
         #Setting up the dataloader
         generator = torch.Generator()
@@ -347,7 +322,7 @@ dataset.augment_dataset(0)
 
 
 
-train_dataloader, test_dataloader, seed_logs = dataset.generate_dataloader(0)
+train_dataloader, test_dataloader, seed_logs = dataset.generate_dataloader_for_dataset(0)
 
 batch = next(iter(train_dataloader))
 print(batch["image"])
