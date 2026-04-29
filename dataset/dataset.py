@@ -131,6 +131,11 @@ class FedISIC2019_Dataset():
     def __to_torch_tensor(self, pil):
         return self.normalize_and_tensorify(pil)
 
+    def __to_numpy(self, img):
+        if isinstance(img, np.ndarray):
+            return img
+        return np.array(img)
+
     def plot_in_partitions_train_class_distribution(self):
         partitioner = self.fds.partitioners["train"]
 
@@ -202,7 +207,7 @@ class FedISIC2019_Dataset():
         ])
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
-        img_np = np.array(pil_img)
+        img_np = self.__to_numpy(pil_img)
         
         #Applying the transform
         augmented = transform(image=img_np)["image"]
@@ -222,7 +227,7 @@ class FedISIC2019_Dataset():
         ])
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
-        img_np = np.array(pil_img)
+        img_np = self.__to_numpy(pil_img)
         
         #Applying the transform
         augmented = transform(image=img_np)["image"]
@@ -230,8 +235,9 @@ class FedISIC2019_Dataset():
         return augmented
     
     def normalize_and_tensorify(self, transformed_img):
+        transformed_img = self.__to_numpy(transformed_img)
         normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel"), albumentations.ToTensorV2()])
-        final_img = normalize(image=transformed_img)
+        final_img = normalize(image=transformed_img)["image"]
         return final_img
 
     def generate_dataloader_for_dataset(self, partition_dataset):
@@ -280,7 +286,10 @@ class FedISIC2019_Dataset():
 
         return dataloader_train, dataloader_test, {"train": list(train_worker_seeds), "test": list(test_worker_seeds)}
     
-    def plot_dataloader_batch(dataloader, num_images=8):
+
+
+
+def plot_dataloader_batch(dataloader, num_images=8):
         # Grab one batch
         images, labels = next(iter(dataloader))
     
@@ -301,12 +310,9 @@ class FedISIC2019_Dataset():
         plt.tight_layout()
         plt.show()
   
-
-
-
 dataset = FedISIC2019_Dataset(67)
 
-print(dataset.fds.load_partition(0, "train")[0])
+#print(dataset.fds.load_partition(0, "train")[0])
 
 #fta, ftt = dataset.centralized_dataset()
 
@@ -331,3 +337,8 @@ print(dataset.fds.load_partition(0, "train")[0])
 #print(batch["label"])
 #print(seed_logs)
 
+
+augmented_partitions = dataset.augment_dataset(0)
+dataloader_train_part1, dataloader_test_part1, seed_logs = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
+
+plot_dataloader_batch(dataloader_train_part1)
