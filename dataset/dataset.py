@@ -110,7 +110,9 @@ class FedISIC2019_Dataset():
                     new_train[i] = [{"center":i,"label":j,"image":self.__to_torch_tensor(row["image"])} for row in temp]
                     elem = temp.select([np.random.randint(0,temp.num_rows) for _ in range(0, n)])
                     for m in range(0, n):
-                        new_train[i].append({"center": i,"label":j,"image":self.apply_oversampling_train_transform(elem[m]["image"])})
+                        transformed_image = self.apply_oversampling_train_transform(elem[m]["image"])
+                        tensorified_image = self.__to_torch_tensor(transformed_image)
+                        new_train[i].append({"center": i,"label":j,"image":tensorified_image})
                 elif(n < 0):
                     rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
                     for x in range(0,temp.num_rows):
@@ -127,7 +129,7 @@ class FedISIC2019_Dataset():
         return [x/total_examples for x in num_labels]
 
     def __to_torch_tensor(self, pil):
-        return torch.tensor(np.transpose(np.array(pil),(2,0,1)),dtype=torch.float32)
+        return self.normalize_and_tensorify(pil)
 
     def plot_in_partitions_train_class_distribution(self):
         partitioner = self.fds.partitioners["train"]
@@ -229,10 +231,8 @@ class FedISIC2019_Dataset():
     
     def normalize_and_tensorify(self, transformed_img):
         normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel"), albumentations.ToTensorV2()])
-        final_img = normalize(transformed_img)
+        final_img = normalize(image=transformed_img)
         return final_img
-
-
 
     def generate_dataloader_for_dataset(self, partition_dataset):
         if self.seed == None:
@@ -280,31 +280,33 @@ class FedISIC2019_Dataset():
 
         return dataloader_train, dataloader_test, {"train": list(train_worker_seeds), "test": list(test_worker_seeds)}
     
-
-
-
-
-
-
-
-
+    def plot_dataloader_batch(dataloader, num_images=8):
+        # Grab one batch
+        images, labels = next(iter(dataloader))
+    
+        # Clamp to [0,1] in case of any floating point overshoot
+        images = images.clamp(0, 1)
+    
+        num_images = min(num_images, len(images))
+        fig, axes = plt.subplots(1, num_images, figsize=(num_images * 2, 3))
+    
+        for i in range(num_images):
+            # Tensor is (C, H, W) → matplotlib needs (H, W, C)
+            img = images[i].permute(1, 2, 0).numpy()
         
+            axes[i].imshow(img)
+            axes[i].set_title(f"Label: {labels[i].item()}")
+            axes[i].axis("off")
     
-
-
-
-    
-
-    
-
-    
-    
+        plt.tight_layout()
+        plt.show()
+  
 
 
 
 dataset = FedISIC2019_Dataset(67)
 
-#print(dataset.fds.partitioners["test"].dataset)
+print(dataset.fds.load_partition(0, "train")[0])
 
 #fta, ftt = dataset.centralized_dataset()
 
@@ -318,14 +320,14 @@ dataset = FedISIC2019_Dataset(67)
 #dataset.plot_centralized_train_class_distribution()
 
 ##dataset.plot_in_partitions_train_class_distribution()
-dataset.augment_dataset(0)
+#dataset.augment_dataset(0)
 
 
 
-train_dataloader, test_dataloader, seed_logs = dataset.generate_dataloader_for_dataset(0)
+#train_dataloader, test_dataloader, seed_logs = dataset.generate_dataloader_for_dataset(0)
 
-batch = next(iter(train_dataloader))
-print(batch["image"])
-print(batch["label"])
-print(seed_logs)
+#batch = next(iter(train_dataloader))
+#print(batch["image"])
+#print(batch["label"])
+#print(seed_logs)
 
