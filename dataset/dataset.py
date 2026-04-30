@@ -256,14 +256,14 @@ class FedISIC2019_Dataset():
         generator.manual_seed(self.seed)
 
         #Setting up shared list across processes
-        #mp_manager = multiprocessing.Manager()
-        train_worker_seeds = []
-        test_worker_seeds = []
+        mp_manager = multiprocessing.Manager()
+        train_worker_seeds = mp_manager.list()
+        test_worker_seeds = mp_manager.list()
 
 
         def make_seed_worker(split_name, seeds_list):
             def seed_worker(worker_id):
-                worker_seed = torch.initial_seed()
+                worker_seed = torch.initial_seed() % 2**32
                 np.random.seed(worker_seed)
                 random.seed(worker_seed)
                 seeds_list.append({"split": split_name, "worker_id": worker_id, "seed": worker_seed})
@@ -275,7 +275,7 @@ class FedISIC2019_Dataset():
             shuffle=True,
             generator=generator,
             worker_init_fn=make_seed_worker("train", train_worker_seeds),
-            num_workers=0
+            num_workers=4
         )
 
         dataloader_test = DataLoader(
@@ -283,10 +283,10 @@ class FedISIC2019_Dataset():
             batch_size=32,
             shuffle=False,
             worker_init_fn=make_seed_worker("test", test_worker_seeds),
-            num_workers=0
+            num_workers=4
         )
 
-        return dataloader_train, dataloader_test, {"train": list(train_worker_seeds), "test": list(test_worker_seeds)}
+        return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
     
 
 
@@ -332,8 +332,9 @@ dataset = FedISIC2019_Dataset(67)
 
 
 augmented_partitions = dataset.augment_dataset(0)
-dataloader_train_part1, dataloader_test_part1, seed_logs = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
+dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
 
 #batch = next(iter(dataloader_train_part1))
 
 plot_dataloader_batch(dataloader_train_part1)
+print({"train": list(train_worker_seeds), "test": list(test_worker_seeds)})
