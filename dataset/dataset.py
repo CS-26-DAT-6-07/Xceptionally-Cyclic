@@ -91,7 +91,7 @@ class FedISIC2019_Dataset():
                     temp_img = self.apply_train_val_test_standard_transform(row["image"])
                     tensorified_temp_img = self.__to_torch_tensor(temp_img)
 
-                    new_train[i].append({"center":representative,"image":tensorified_temp_img ,"label":row["label"]})
+                    new_train[i].append({"center":representative ,"label":row["label"],"image":tensorified_temp_img})
                 continue    
 
             missing_label_percentage = 0
@@ -108,7 +108,7 @@ class FedISIC2019_Dataset():
                 
                 temp = data[i].filter(lambda e: e['label'] == j)
                 if(n > 0):
-                    new_train[i] = [{"center":i,"label":j,"image":self.__to_torch_tensor(row["image"])} for row in temp]
+                    new_train[i] = [{"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(row["image"]))} for row in temp]
                     elem = temp.select([np.random.randint(0,temp.num_rows) for _ in range(0, n)])
                     for m in range(0, n):
                         transformed_image = self.apply_oversampling_train_transform(elem[m]["image"])
@@ -118,19 +118,19 @@ class FedISIC2019_Dataset():
                     rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
                     for x in range(0,temp.num_rows):
                         if(x not in rmv):
-                            new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(temp[x]["image"])})
-            data[i] = datasets.Dataset.from_list(new_train[i])
+                            new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(temp[x]["image"]))})
+            data[i] = datasets.Dataset.from_list(new_train[i]).with_format("torch")
         if(not quiet):
             print("augmenting complete")
         
 
         return data
-       
+
+
     def __calc_distr(self, num_labels, total_examples):
         return [x/total_examples for x in num_labels]
 
     def __to_torch_tensor(self, pil):
-
         return self.normalize_and_tensorify(pil)
 
     def __to_numpy(self, img):
@@ -293,20 +293,20 @@ class FedISIC2019_Dataset():
 
 def plot_dataloader_batch(dataloader, num_images=8):
         # Grab one batch
-        images, labels = next(iter(dataloader))
+        batch = next(iter(dataloader))
     
         # Clamp to [0,1] in case of any floating point overshoot
-        images = images.clamp(0, 1)
+        batch['image'] = [img.clamp(0,1) for img in batch['image']]
     
-        num_images = min(num_images, len(images))
+        num_images = min(num_images, len(batch['image']))
         fig, axes = plt.subplots(1, num_images, figsize=(num_images * 2, 3))
     
         for i in range(num_images):
             # Tensor is (C, H, W) → matplotlib needs (H, W, C)
-            img = images[i].permute(1, 2, 0).numpy()
+            img = batch['image'][i].permute(1, 2, 0).numpy()
         
             axes[i].imshow(img)
-            axes[i].set_title(f"Label: {labels[i].item()}")
+            axes[i].set_title(f"Label: {batch['label'][i].item()}")
             axes[i].axis("off")
     
         plt.tight_layout()
@@ -334,9 +334,6 @@ dataset = FedISIC2019_Dataset(67)
 augmented_partitions = dataset.augment_dataset(0)
 dataloader_train_part1, dataloader_test_part1, seed_logs = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
 
-batch = next(iter(dataloader_train_part1))
-print(batch["image"])
-print(batch["label"])
-print(seed_logs)
+#batch = next(iter(dataloader_train_part1))
 
-#plot_dataloader_batch(dataloader_train_part1)
+plot_dataloader_batch(dataloader_train_part1)
