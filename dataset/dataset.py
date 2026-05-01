@@ -41,6 +41,16 @@ class FedISIC2019_Dataset():
 
     def __init__(self, seed: int):
         self.seed = seed
+
+        #Seeding RNG
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+        else:
+            print("Dataset RNG not seeded")
+            exit(1)
+
         #Loading Fed-ISIC2019 via flwr_datasets
         self.fds = FederatedDataset(
             dataset="flwrlabs/fed-isic2019", 
@@ -216,13 +226,10 @@ class FedISIC2019_Dataset():
         return
     
     def apply_train_val_test_standard_transform(self, pil_img):
-        if self.seed != None:
-            np.random.seed(self.seed)
-        
         transform = albumentations.Compose([
             albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
             albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG)
-        ])
+        ], seed=self.seed)
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
         img_np = self.__to_numpy(pil_img)
@@ -233,16 +240,13 @@ class FedISIC2019_Dataset():
         return augmented
 
     def apply_oversampling_train_transform(self, pil_img):
-        if self.seed != None:
-            np.random.seed(self.seed)
-        
         transform = albumentations.Compose([
             albumentations.RandomScale(0.07),
             albumentations.RandomRotate90(),
             albumentations.ShiftScaleRotate(),
             albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
-            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG)
-        ])
+            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
+        ], seed=self.seed)
 
         #Taking the Pillow formated image from the dataset and make it into a Numpy Array
         img_np = self.__to_numpy(pil_img)
@@ -259,10 +263,6 @@ class FedISIC2019_Dataset():
         return final_img
 
     def generate_dataloader_for_dataset(self, partition_dataset):
-        if self.seed == None:
-            print("No seed given to the dataset object")
-            exit(1)
-
         partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
         partition_train = partition_train_test["train"]
         partition_test = partition_train_test["test"]
@@ -275,15 +275,6 @@ class FedISIC2019_Dataset():
         mp_manager = multiprocessing.Manager()
         train_worker_seeds = mp_manager.list()
         test_worker_seeds = mp_manager.list()
-
-
-        def make_seed_worker(split_name, seeds_list):
-            def seed_worker(worker_id):
-                worker_seed = torch.initial_seed() % 2**32
-                np.random.seed(worker_seed)
-                random.seed(worker_seed)
-                seeds_list.append({"split": split_name, "worker_id": worker_id, "seed": worker_seed})
-            return seed_worker
 
         dataloader_train = DataLoader(
             partition_train,
@@ -355,4 +346,4 @@ if __name__ == "__main__":
     #batch = next(iter(dataloader_train_part1))
 
     plot_dataloader_batch(dataloader_train_part1)
-    print({"train": list(train_worker_seeds), "test": list(test_worker_seeds)})
+    print({"DatasetObjSeed": dataset.seed, "train": list(train_worker_seeds), "test": list(test_worker_seeds)})
