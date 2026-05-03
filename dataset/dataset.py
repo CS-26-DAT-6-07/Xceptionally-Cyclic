@@ -38,6 +38,7 @@ class FedISIC2019_Dataset():
     labels = None
     labels_for_the_labels = ["mel", "mel-nev", "bcc", "ak", "bk", "df", "vl", "scc"]
     seed = None
+    augmented_dataset_partitions = None
 
     def __init__(self, seed: int):
         self.seed = seed
@@ -86,7 +87,8 @@ class FedISIC2019_Dataset():
         return
     
     def augment_dataset(self, representative):
-        return self.__apply_augmentations(representative=representative, quiet=False)
+        self.augmented_dataset_partitions = self.__apply_augmentations(representative=representative, quiet=False)
+        return self.augmented_dataset_partitions
          
 
     def __apply_augmentations(self, representative, quiet = True):
@@ -295,6 +297,68 @@ class FedISIC2019_Dataset():
 
         return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
     
+    def plot_in_partitions_augmented_train_class_distribution(self, representative: int):
+        if self.augmented_dataset_partitions is None:
+            if representative is not None:
+                self.augment_dataset(representative=representative)
+            else:
+                print("Need representative partition id")
+                exit(1)
+        
+        bar_width = 0.5
+        indicies_partitions = [n for n in range(len(self.augmented_dataset_partitions))]
+
+        mel_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        mel_nev_counters = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        bcc_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        ak_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        bk_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        df_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        vl_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        scc_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+
+        for i, partition in enumerate(self.augmented_dataset_partitions):
+            partition_label_count = [0 for label in self.labels_for_the_labels]
+            for sample in partition:
+                partition_label_count[sample["label"]] += 1
+
+            mel_counters[i] += partition_label_count[0]
+            mel_nev_counters[i] += partition_label_count[1]
+            bcc_counters[i] += partition_label_count[2]
+            ak_counters[i] += partition_label_count[3]
+            bk_counters[i] += partition_label_count[4]
+            df_counters[i] += partition_label_count[5]
+            vl_counters[i] += partition_label_count[6]
+            scc_counters[i] += partition_label_count[7]
+
+        plt.bar(indicies_partitions, mel_counters, bar_width, label="mel")
+        plt.bar(indicies_partitions, mel_nev_counters, bar_width, bottom=mel_counters, label="mel-nev")
+        plt.bar(indicies_partitions, bcc_counters, bar_width, bottom=mel_counters + mel_nev_counters, label="bcc")
+        plt.bar(indicies_partitions, ak_counters, bar_width, bottom=mel_counters + mel_nev_counters + bcc_counters, label="ak")
+        plt.bar(indicies_partitions, bk_counters, bar_width, bottom=mel_counters + mel_nev_counters + bcc_counters + ak_counters, label="bk")
+        plt.bar(indicies_partitions, df_counters, bar_width, bottom=mel_counters + mel_nev_counters + bcc_counters + ak_counters + bk_counters, label="df")
+        plt.bar(indicies_partitions, vl_counters, bar_width, bottom=mel_counters + mel_nev_counters + bcc_counters + ak_counters + bk_counters + df_counters, label="vl")
+        plt.bar(indicies_partitions, scc_counters, bar_width, bottom=mel_counters + mel_nev_counters + bcc_counters + ak_counters + bk_counters + df_counters + vl_counters, label="scc")
+        
+        totals = (mel_counters + mel_nev_counters + bcc_counters + ak_counters + bk_counters + df_counters + vl_counters + scc_counters)
+
+        for i, total in enumerate(totals):
+            plt.text(i, total, str(total), ha="center", va="bottom", fontsize=10)
+
+        plt.xlabel("Partition ID")
+        plt.ylabel("Count")
+        plt.xticks(indicies_partitions, [f"{n}" for n in indicies_partitions])
+        plt.title("Per partition Labels Distribution")
+        plt.legend()
+        
+        plt.show()
+
+        return
+
+
+
+
+    
 
 
 
@@ -319,31 +383,18 @@ def plot_dataloader_batch(dataloader, num_images=8):
         plt.tight_layout()
         plt.show()
   
-#dataset = FedISIC2019_Dataset(67)
 
-#print(dataset.fds.load_partition(0, "train")[0])
 
-#fta, ftt = dataset.centralized_dataset()
-
-#print(fta)
-
-#full_train, full_test = dataset.centralized_dataset()
-
-#print(full_train[0])
-
-#dataset.plot_centralized_train_class_distribution()
-#dataset.plot_centralized_train_class_distribution()
-
-##dataset.plot_in_partitions_train_class_distribution()
-#dataset.augment_dataset(0)
 
 if __name__ == "__main__":
     dataset = FedISIC2019_Dataset(67)
 
-    augmented_partitions = dataset.augment_dataset(0)
-    dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
+    #augmented_partitions = dataset.augment_dataset(0)
+    #dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
 
-    #batch = next(iter(dataloader_train_part1))
 
-    plot_dataloader_batch(dataloader_train_part1)
-    print({"DatasetObjSeed": dataset.seed, "train": list(train_worker_seeds), "test": list(test_worker_seeds)})
+    #plot_dataloader_batch(dataloader_train_part1)
+    #print({"DatasetObjSeed": dataset.seed, "train": list(train_worker_seeds), "test": list(test_worker_seeds)})
+    aug_partitions = dataset.augment_dataset(0)
+    for partition in aug_partitions:
+        print(partition)
