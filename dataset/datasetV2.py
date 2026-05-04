@@ -90,7 +90,7 @@ class FedISIC2019_Dataset():
             partition_data = self.fds.load_partition(partition_id=partition_index, split="train")
             partition_label_counts[partition_index] = self.get_partition_label_count(partition=partition_data, partition_id=partition_index, quiet_output=quiet_output)
             standardized_dataset = partition_data.map(self.__map_image_to_standard_transformed_image, num_proc=4)
-            standardized_dataset.save_to_disk(f"datset_proccesed_data/partition{partition_index}")
+            standardized_dataset.save_to_disk(f"dataset_proccesed_data/partition{partition_index}")
         
         return
 
