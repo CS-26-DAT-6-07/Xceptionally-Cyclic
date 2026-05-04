@@ -119,37 +119,50 @@ class FedISIC2019_Dataset():
                 #    tensorified_temp_img = self.__to_torch_tensor(temp_img)
                 #    new_train[i].append({"center":representative ,"label":row["label"],"image":tensorified_temp_img})
                 #data[i] = datasets.Dataset.from_list(new_train[i]).with_format("torch")   
-                data[i] = data[i].map(self.__transform_image)
+                data[i] = data[i].map(self.__transform_image).with_format('torch')
                 continue    
 
             missing_label_percentage = 0
             #...add the missing_label_percentage of the labels that dont exist in the partition, then...
             for j in [x for x in range(0,amt_labels) if distributions[i][x] == 0]:
                 missing_label_percentage += distributions[representative][j]
-            ns = [0 for i in range(0, amt_labels)]
             #...for the labels that do exist...
+            rmv = []
+            add = []
             for j in [x for x in range(0,amt_labels) if not distributions[i][x] == 0]:
                 #...calculate the number of pictures to add/remove from the set...
                 #Ratio (r) = desired ration of label/The_total_ratio_of_existing_labels_in_partition (1 - missing_label_percentage)
                 #Number of images to add or remove (n) = (r * all_samples_in_partition)/The_total_ratio_of_existing_labels_in_partition - number_of_n_label_img_in_partition
                 n = math.ceil((distributions[representative][j]/(1 - missing_label_percentage))*data[i].num_rows - num_labels[i][j])
-                ns[j] = n
-                temp = data[i].filter(lambda e: e['label'] == j)
+
+                #Find indexes with labels matching the one currently being looked at            
+                candidates = []
+                for k in range(0, data[i].num_rows):
+                    if(data[i][k]['label'] == j):
+                        candidates.append(k)
+                
+                #if images need to be added
                 if(n > 0):
-                    new_train[i] += [{"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(row["image"]))} for row in temp]
-                    elem = temp.select([np.random.randint(0,temp.num_rows) for _ in range(0, n)])
-                    for m in range(0, n):
-                        transformed_image = self.apply_oversampling_train_transform(elem[m]["image"])
-                        tensorified_image = self.__to_torch_tensor(transformed_image)
-                        new_train[i].append({"center": i,"label":j,"image":tensorified_image})
+                    #select n candidates (can be duplicates) and use them to make images
+                    for k in np.random.choice([x for x in candidates],n, replace=True):
+                        temp = data[i][k]
+                        temp['image'] =  self.__to_torch_tensor(self.apply_oversampling_train_transform(temp["image"]))
+                        add.append(temp) 
                 elif(n < 0):
-                    rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
-                    for x in range(0,temp.num_rows):
-                        if(x not in rmv):
-                            new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(temp[x]["image"]))})
-            data[i] = datasets.Dataset.from_list(new_train[i]).with_format("torch")
-            print(ns)
-            print(sum(ns))
+                    #save the indices to removed later
+                    rmv = np.append(rmv,np.random.choice([x for x in candidates],abs(n), replace=False))
+            
+            data[i] = data[i].map(self.__transform_image) #normalize
+            data[i] = data[i].select([k for k in range(0, data[i].num_rows) if k not in rmv]) #remove images
+
+            
+            if(len(add) > 0):
+                target_features = data[i].features
+                def gen():
+                    for x in add: yield x
+                add_dataset = datasets.Dataset.from_generator(gen,features=target_features) #Create a new dataset with the new images
+                data[i] = datasets.concatenate_datasets([data[i], add_dataset])
+            data[i] = data[i].with_format("torch")
         if(not quiet):
             print("augmenting complete")
         
@@ -264,7 +277,7 @@ class FedISIC2019_Dataset():
     
     def normalize_and_tensorify(self, transformed_img):
         transformed_img = self.__to_numpy(transformed_img)
-        normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel"), albumentations.ToTensorV2()])
+        normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel")])
         final_img = normalize(image=transformed_img)["image"]
         return final_img
 
