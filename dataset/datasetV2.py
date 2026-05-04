@@ -55,6 +55,11 @@ class FedISIC2019_Dataset():
             label_counters[row["label"]] += 1
         return label_counters
     
+    def __to_numpy(self, img):
+        if isinstance(img, np.ndarray):
+            return img
+        return np.array(img)
+
     def apply_train_val_test_standard_transform(self, pil_img):
         transform = albumentations.Compose([
             albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
