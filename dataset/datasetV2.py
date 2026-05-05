@@ -80,8 +80,39 @@ class FedISIC2019_Dataset():
     def __map_image_to_standard_transformed_image(self, row):
         row["image"] = self.apply_train_val_test_standard_transform(row["image"])
         return row
+    
+    def __calc_distr(self, num_labels, total_examples):
+        return [x/total_examples for x in num_labels]
+    
+    def __calc_partition_change_list(self, distributions: list, partition_total_samples: list, partition_label_counts: list, num_of_partitions: int, representative_partition: int):
+        pc_list = [[0 for label in range(self.amt_labels)] for i in range(num_of_partitions)]
+        
+        #For all partitions, we...
+        for i in range(num_of_partitions):
+            if i == representative_partition:
+                continue
 
-    def augment_dataset(self, quiet_output = False):
+            missing_label_percentage = 0
+            #...add the missing_label_percentage of the labels that dont exist in the partition, then...
+            for j in [x for x in range(self.amt_labels) if distributions[i][x] == 0]:
+                missing_label_percentage += distributions[representative_partition][j]
+            
+            partition_change_list = [0 for i in range(self.amt_labels)]
+
+            #...for the labels that do exist...
+            for j in [x for x in range(self.amt_labels) if not distributions[i][x] == 0]:
+                #...calculate the number of pictures to add/remove from the set...
+                #Ratio (r) = desired ration of label/The_total_ratio_of_existing_labels_in_partition (1 - missing_label_percentage)
+                #Number of images to add or remove (n) = (r * all_samples_in_partition)/The_total_ratio_of_existing_labels_in_partition - number_of_n_label_img_in_partition
+                n = math.ceil((distributions[representative_partition][j]/(1 - missing_label_percentage))*partition_total_samples[i] - partition_label_counts[i][j])
+                partition_change_list[j] = n
+            
+            pc_list[i] = partition_change_list
+
+        return pc_list
+
+
+    def augment_dataset(self, representative_partition: int, quiet_output = False):
         #Stage 1 - Loading a Partiton, Standardizing and counting labels.
         num_of_partitions = self.fds.partitioners["train"].num_partitions
         partition_label_counts = [[0 for n in range(self.amt_labels)] for n in range(num_of_partitions)]
@@ -92,9 +123,23 @@ class FedISIC2019_Dataset():
             standardized_dataset = partition_data.map(self.__map_image_to_standard_transformed_image, num_proc=4)
             standardized_dataset.save_to_disk(f"dataset_proccesed_data/partition{partition_index}")
         
+
+        #Stage 2 - Calculate partition distributions and amount of images to add/remove.
+        partition_total_samples = [0 for partitions in range(num_of_partitions)]
+        for i_part in range(num_of_partitions):
+            for j_label in range(self.amt_labels):
+                partition_total_samples[i_part] += partition_label_counts[i_part][j_label]
+        
+        distributions = [self.__calc_distr(partition_label_counts[i],partition_total_samples[i]) for i in range(num_of_partitions)]
+        partition_change_lists = self.__calc_partition_change_list(distributions, partition_total_samples, partition_label_counts, num_of_partitions, representative_partition)
+
+        print(distributions)
+        print(partition_change_lists)
+
+
         return
 
 
 if __name__ == "__main__":
     dataset = FedISIC2019_Dataset(67)
-    dataset.augment_dataset()
+    dataset.augment_dataset(0)
