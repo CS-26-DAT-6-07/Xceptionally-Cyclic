@@ -4,12 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import albumentations
-import csv
 import datasets
+from datasets import Dataset
+from PIL import Image
 import multiprocessing
-from collections import defaultdict
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import NaturalIdPartitioner
 from flwr_datasets.visualization import plot_label_distributions
@@ -33,12 +33,15 @@ class SeedWorker:
             "seed": worker_seed
         })
 
+
 class FedISIC2019_Dataset():
     fds = None
     labels = None
     labels_for_the_labels = ["mel", "mel-nev", "bcc", "ak", "bk", "df", "vl", "scc"]
+    amt_labels = 8
     seed = None
-    augmented_dataset_partitions = None
+    normalize_transform = None
+    _dataset_is_augmented = False
 
     def __init__(self, seed: int):
         self.seed = seed
@@ -61,114 +64,238 @@ class FedISIC2019_Dataset():
             }
         )
 
-    def centralized_dataset(self):
-        full_train = self.fds.load_split("train")
-        full_test = self.fds.load_split("test")
+        self.normalize_transform = albumentations.Compose([
+            albumentations.Normalize(normalization="min_max_per_channel"),
+            albumentations.pytorch.ToTensorV2()
+        ])
 
-        self.labels = full_train.features["label"].names
-        return full_train, full_test
+    def get_partition_label_count(self, partition: Dataset, partition_id: int, quiet_output = True):
+        if(not quiet_output):
+            print(f"Counting Labels for Partition {partition_id}")
+
+        label_counters = [0 for n in range(self.amt_labels)]
+        for row in partition:
+            label_counters[row["label"]] += 1
+        return label_counters
     
-    def plot_centralized_train_class_distribution(self):
-        full_train, _ = self.centralized_dataset()
-        label_counter = [0, 0, 0, 0, 0, 0, 0, 0]
-        
-        for sample in full_train:
-            label_on_sample = sample["label"]
-            label_counter[label_on_sample] += 1
-        
-        colors = ['red', 'gold', 'limegreen', 'dodgerblue', 'orange', 'violet', 'tomato', 'teal']
-        label_bars = plt.bar(self.labels_for_the_labels, label_counter, color=colors)
-        plt.title("Label distribution for the centralized Fed-ISIC2019")
-        plt.xlabel("labels_for_the_labels")
-        plt.ylabel("Number of Images")
-        plt.bar_label(label_bars, labels=label_counter, padding=5)
-        plt.show()
-
-        return
-    
-    def augment_dataset(self, representative):
-        self.augmented_dataset_partitions = self.__apply_augmentations(representative=representative, quiet=False)
-        return self.augmented_dataset_partitions        
-
-    def __apply_augmentations(self, representative, quiet = True):
-        amt_labels = 8
-
-        partitions = self.fds.partitioners["train"]
-        
-        data = [partitions.load_partition(i) for i in range(0,partitions.num_partitions)] 
-
-        num_labels = [[0 for i in range(0,amt_labels)] for i in range(0,partitions.num_partitions)]
-        if(not quiet):
-            print("Couting labels")
-        #Count labels for each of the partitions
-        for d in range(0, partitions.num_partitions):
-            for row in data[d]:
-                num_labels[d][row["label"]] += 1
-
-        #List of lists with the distributions per partition
-        distributions = [self.__calc_distr(num_labels[i],len(data[i])) for i in range(0,partitions.num_partitions)]
-
-        new_train = [[] for x in range(0,partitions.num_partitions)]
-        #For all partitions, we...
-        for i in range(0,partitions.num_partitions):
-            if(not quiet):
-                print(f"augmenting partition {i}")
-            if(i == representative):
-                #for row in data[representative]:
-                #    temp_img = self.apply_train_val_test_standard_transform(row["image"])
-                #    tensorified_temp_img = self.__to_torch_tensor(temp_img)
-                #    new_train[i].append({"center":representative ,"label":row["label"],"image":tensorified_temp_img})
-                #data[i] = datasets.Dataset.from_list(new_train[i]).with_format("torch")   
-                data[i] = data[i].map(self.__transform_image)
-                continue    
-
-            missing_label_percentage = 0
-            #...add the missing_label_percentage of the labels that dont exist in the partition, then...
-            for j in [x for x in range(0,amt_labels) if distributions[i][x] == 0]:
-                missing_label_percentage += distributions[representative][j]
-            ns = [0 for i in range(0, amt_labels)]
-            #...for the labels that do exist...
-            for j in [x for x in range(0,amt_labels) if not distributions[i][x] == 0]:
-                #...calculate the number of pictures to add/remove from the set...
-                #Ratio (r) = desired ration of label/The_total_ratio_of_existing_labels_in_partition (1 - missing_label_percentage)
-                #Number of images to add or remove (n) = (r * all_samples_in_partition)/The_total_ratio_of_existing_labels_in_partition - number_of_n_label_img_in_partition
-                n = math.ceil((distributions[representative][j]/(1 - missing_label_percentage))*data[i].num_rows - num_labels[i][j])
-                ns[j] = n
-                temp = data[i].filter(lambda e: e['label'] == j)
-                if(n > 0):
-                    new_train[i] += [{"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(row["image"]))} for row in temp]
-                    elem = temp.select([np.random.randint(0,temp.num_rows) for _ in range(0, n)])
-                    for m in range(0, n):
-                        transformed_image = self.apply_oversampling_train_transform(elem[m]["image"])
-                        tensorified_image = self.__to_torch_tensor(transformed_image)
-                        new_train[i].append({"center": i,"label":j,"image":tensorified_image})
-                elif(n < 0):
-                    rmv = np.random.choice([x for x in range(0, temp.num_rows)],abs(n), replace=False)
-                    for x in range(0,temp.num_rows):
-                        if(x not in rmv):
-                            new_train[i].append({"center":i,"label":j,"image":self.__to_torch_tensor(self.apply_train_val_test_standard_transform(temp[x]["image"]))})
-            data[i] = datasets.Dataset.from_list(new_train[i]).with_format("torch")
-            print(ns)
-            print(sum(ns))
-        if(not quiet):
-            print("augmenting complete")
-        
-
-        return data
-    def __transform_image(self, example):
-       example['image'] = self.__to_torch_tensor(self.apply_train_val_test_standard_transform(example['image']))
-       return example
-
-    def __calc_distr(self, num_labels, total_examples):
-        return [x/total_examples for x in num_labels]
-
-    def __to_torch_tensor(self, pil):
-        return self.normalize_and_tensorify(pil)
-
     def __to_numpy(self, img):
         if isinstance(img, np.ndarray):
             return img
         return np.array(img)
+
+    def apply_train_val_test_standard_transform(self, pil_img):
+        transform = albumentations.Compose([
+            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
+            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG)
+        ], seed=self.seed)
+
+        #Taking the Pillow formated image from the dataset and make it into a Numpy Array
+        img_np = self.__to_numpy(pil_img)
+        
+        #Applying the transform
+        augmented = transform(image=img_np)["image"]
+
+        #Transforming back into PIL Image for memory conservation
+        augmented_pil_img = Image.fromarray(augmented)
+        
+        return augmented_pil_img
+    
+    def apply_oversampling_train_transform(self, pil_img):
+        transform = albumentations.Compose([
+            albumentations.RandomScale(0.07),
+            albumentations.RandomRotate90(),
+            albumentations.ShiftScaleRotate(),
+            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
+            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
+        ], seed=self.seed)
+
+        #Taking the Pillow formated image from the dataset and make it into a Numpy Array
+        img_np = self.__to_numpy(pil_img)
+        
+        #Applying the transform
+        augmented = transform(image=img_np)["image"]
+
+        #Transforming back into PIL Image for memory conservation
+        augmented_pil_img = Image.fromarray(augmented)
+        
+        return augmented_pil_img
+    
+    def __map_image_to_standard_transformed_image(self, row):
+        row["image"] = self.apply_train_val_test_standard_transform(row["image"])
+        return row
+    
+    def __calc_distr(self, num_labels, total_examples):
+        return [x/total_examples for x in num_labels]
+    
+    def __calc_partition_change_list(self, distributions: list, partition_total_samples: list, partition_label_counts: list, num_of_partitions: int, representative_partition: int):
+        pc_list = [[0 for label in range(self.amt_labels)] for i in range(num_of_partitions)]
+        
+        #For all partitions, we...
+        for i in range(num_of_partitions):
+            if i == representative_partition:
+                continue
+
+            missing_label_percentage = 0
+            #...add the missing_label_percentage of the labels that dont exist in the partition, then...
+            for j in [x for x in range(self.amt_labels) if distributions[i][x] == 0]:
+                missing_label_percentage += distributions[representative_partition][j]
+            
+            partition_change_list = [0 for i in range(self.amt_labels)]
+
+            #...for the labels that do exist...
+            for j in [x for x in range(self.amt_labels) if not distributions[i][x] == 0]:
+                #...calculate the number of pictures to add/remove from the set...
+                #Ratio (r) = desired ration of label/The_total_ratio_of_existing_labels_in_partition (1 - missing_label_percentage)
+                #Number of images to add or remove (n) = (r * all_samples_in_partition)/The_total_ratio_of_existing_labels_in_partition - number_of_n_label_img_in_partition
+                n = math.ceil((distributions[representative_partition][j]/(1 - missing_label_percentage))*partition_total_samples[i] - partition_label_counts[i][j])
+                partition_change_list[j] = n
+            
+            pc_list[i] = partition_change_list
+
+        return pc_list
+    
+    def augment_partition(self, partition_id: int, partition_change_list: list, quiet_output = True):
+        if(not quiet_output):
+            print(f"Augmenting Partition {partition_id}")
+        
+        partition_data = self.fds.load_partition(partition_id, "train")
+
+        #Adding oversampled images
+        new_train = []
+        for label_index, partition_label_change in enumerate(partition_change_list):
+            if partition_label_change > 0:
+                temp_filtered_ds = partition_data.filter(lambda row: row["label"] == label_index, num_proc=4)
+                temp_to_transform = temp_filtered_ds.select([np.random.randint(0,temp_filtered_ds.num_rows) for _ in range(partition_label_change)])
+                new_train.extend({"center":partition_id,"label":label_index,"image":self.apply_oversampling_train_transform(row["image"])} for row in temp_to_transform)
+
+                #Freeing memory
+                temp_filtered_ds = []
+                temp_to_transform = []
+
+        #Guarding against an empty new_train from the representative partition
+        new_partition_ds = None
+        if new_train:    
+            new_train_ds = datasets.Dataset.from_list(new_train)
+            new_train = []
+
+            #Casting the features to match the original dataset
+            new_train_ds = new_train_ds.cast(partition_data.features)
+
+            new_partition_ds =  datasets.concatenate_datasets([partition_data, new_train_ds])
+        else:
+            new_partition_ds = partition_data    
+        
+        new_partition_ds.save_to_disk(f"dataset_proccesed_data/partition{partition_id}")
+        new_partition_ds = []
+
+
+        #Removing unnecessary images
+        new_partition_data = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{partition_id}")
+
+        temp_to_rmv = []
+        for label_index, partition_label_change in enumerate(partition_change_list):
+            if partition_label_change < 0:
+                temp_filtered_ds = new_partition_data.filter(lambda row: row["label"] == label_index, num_proc=4)
+
+                rows_indicies_to_remove = np.random.choice([x for x in range(0, temp_filtered_ds.num_rows)],abs(partition_label_change), replace=False)
+                temp_rows_dataset = temp_filtered_ds.select(rows_indicies_to_remove)
+                for row in temp_rows_dataset:
+                    temp_to_rmv.append(row)
+                
+                temp_filtered_ds = [] #Free memory
+            
+            # Build a set of fingerprints from rows to remove
+            fingerprints_to_remove = set()
+            for row in temp_to_rmv:
+                img_bytes = np.array(row["image"]).tobytes()
+                fingerprints_to_remove.add((row["center"], row["label"], img_bytes))
+
+        def should_keep(row):
+            img_bytes = np.array(row["image"]).tobytes()
+            return (row["center"], row["label"], img_bytes) not in fingerprints_to_remove
+
+        new_partition_ds = new_partition_data.filter(should_keep, num_proc=1)  # num_proc=1 since fingerprints_to_remove can't be pickled
+        new_partition_ds = new_partition_ds.cast(new_partition_data.features)
+        temp_to_rmv = [] # Free memory
+
+        return new_partition_ds
+
+
+    def augment_dataset(self, representative_partition: int, quiet_output = False):
+        #Stage 1 - Loading a Partiton, Standardizing and counting labels.
+        num_of_partitions = self.fds.partitioners["train"].num_partitions
+        partition_label_counts = [[0 for n in range(self.amt_labels)] for n in range(num_of_partitions)]
+
+        for partition_index in range(num_of_partitions):
+            partition_data = self.fds.load_partition(partition_id=partition_index, split="train")
+            partition_label_counts[partition_index] = self.get_partition_label_count(partition=partition_data, partition_id=partition_index, quiet_output=quiet_output)
+            standardized_dataset = partition_data.map(self.__map_image_to_standard_transformed_image, num_proc=4)
+            standardized_dataset.save_to_disk(f"dataset_proccesed_data/partition{partition_index}")
+        
+
+        #Stage 2 - Calculate partition distributions and amount of images to add/remove.
+        partition_total_samples = [0 for partitions in range(num_of_partitions)]
+        for i_part in range(num_of_partitions):
+            for j_label in range(self.amt_labels):
+                partition_total_samples[i_part] += partition_label_counts[i_part][j_label]
+        
+        distributions = [self.__calc_distr(partition_label_counts[i],partition_total_samples[i]) for i in range(num_of_partitions)]
+        partition_change_lists = self.__calc_partition_change_list(distributions, partition_total_samples, partition_label_counts, num_of_partitions, representative_partition)
+
+        
+        #Stage 3 - Adding/Removing images
+        for partition_index in range(num_of_partitions):
+            augmented_partition = self.augment_partition(partition_id=partition_index, partition_change_list=partition_change_lists[partition_index], quiet_output=quiet_output)
+            augmented_partition.save_to_disk(f"dataset_proccesed_data/partition{partition_index}_augmented")
+            if(not quiet_output):
+                print(f"Finished Augmenting Partition{partition_index}")
+            
+        if(not quiet_output):
+            print("Finished augmenting the dataset")
+        self._dataset_is_augmented = True
+        return
+
+    def normalize_and_tensorify_batch(self, batch):
+        batch["image"] = [
+            self.normalize_transform(image=self.__to_numpy(img))["image"]
+            for img in batch["image"]
+        ]
+        return batch
+    
+    def generate_dataloader_for_dataset(self, partition_dataset: Dataset):
+        partition_dataset = partition_dataset.with_transform(self.normalize_and_tensorify_batch)
+
+        partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
+        partition_train = partition_train_test["train"]
+        partition_test = partition_train_test["test"]
+
+        #Setting up the dataloader
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+
+        #Setting up shared list across processes
+        mp_manager = multiprocessing.Manager()
+        train_worker_seeds = mp_manager.list()
+        test_worker_seeds = mp_manager.list()
+
+        dataloader_train = DataLoader(
+            partition_train,
+            batch_size=32,
+            shuffle=True,
+            generator=generator,
+            worker_init_fn=SeedWorker("train", train_worker_seeds),
+            num_workers=4
+        )
+
+        dataloader_test = DataLoader(
+            partition_test,
+            batch_size=32,
+            shuffle=False,
+            worker_init_fn=SeedWorker("test", test_worker_seeds),
+            num_workers=4
+        )
+
+        return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
 
     def plot_in_partitions_train_class_distribution(self):
         partitioner = self.fds.partitioners["train"]
@@ -230,110 +357,42 @@ class FedISIC2019_Dataset():
         plt.show()
 
         return
-    
-    def apply_train_val_test_standard_transform(self, pil_img):
-        transform = albumentations.Compose([
-            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
-            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG)
-        ], seed=self.seed)
 
-        #Taking the Pillow formated image from the dataset and make it into a Numpy Array
-        img_np = self.__to_numpy(pil_img)
-        
-        #Applying the transform
-        augmented = transform(image=img_np)["image"]
-        
-        return augmented
-
-    def apply_oversampling_train_transform(self, pil_img):
-        transform = albumentations.Compose([
-            albumentations.RandomScale(0.07),
-            albumentations.RandomRotate90(),
-            albumentations.ShiftScaleRotate(),
-            albumentations.PadIfNeeded(min_height=SIZE_IMG, min_width=SIZE_IMG, border_mode=0),
-            albumentations.CenterCrop(height=SIZE_IMG, width=SIZE_IMG),
-        ], seed=self.seed)
-
-        #Taking the Pillow formated image from the dataset and make it into a Numpy Array
-        img_np = self.__to_numpy(pil_img)
-        
-        #Applying the transform
-        augmented = transform(image=img_np)["image"]
-
-        return augmented
-    
-    def normalize_and_tensorify(self, transformed_img):
-        transformed_img = self.__to_numpy(transformed_img)
-        normalize = albumentations.Compose([albumentations.Normalize(normalization="min_max_per_channel"), albumentations.ToTensorV2()])
-        final_img = normalize(image=transformed_img)["image"]
-        return final_img
-
-    def generate_dataloader_for_dataset(self, partition_dataset):
-        partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
-        partition_train = partition_train_test["train"]
-        partition_test = partition_train_test["test"]
-
-        #Setting up the dataloader
-        generator = torch.Generator()
-        generator.manual_seed(self.seed)
-
-        #Setting up shared list across processes
-        mp_manager = multiprocessing.Manager()
-        train_worker_seeds = mp_manager.list()
-        test_worker_seeds = mp_manager.list()
-
-        dataloader_train = DataLoader(
-            partition_train,
-            batch_size=32,
-            shuffle=True,
-            generator=generator,
-            worker_init_fn=SeedWorker("train", train_worker_seeds),
-            num_workers=4
-        )
-
-        dataloader_test = DataLoader(
-            partition_test,
-            batch_size=32,
-            shuffle=False,
-            worker_init_fn=SeedWorker("test", test_worker_seeds),
-            num_workers=4
-        )
-
-        return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
-    
-    def plot_in_partitions_augmented_train_class_distribution(self, representative: int):
-        if self.augmented_dataset_partitions is None:
-            if representative is not None:
-                self.augment_dataset(representative=representative)
+    def plot_in_partitions_augmented_train_class_distribution(self, representative_partition: int):
+        if self._dataset_is_augmented is False:
+            if representative_partition is not None:
+                self.augment_dataset(representative_partition=representative_partition)
             else:
                 print("Need representative partition id")
                 exit(1)
         
+        num_of_partitions = self.fds.partitioners["train"].num_partitions
+        
         bar_width = 0.5
-        indicies_partitions = [n for n in range(len(self.augmented_dataset_partitions))]
+        indicies_partitions = [n for n in range(num_of_partitions)]
 
-        mel_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        mel_nev_counters = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        bcc_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        ak_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        bk_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        df_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        vl_counters      = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
-        scc_counters     = np.zeros(len(self.augmented_dataset_partitions), dtype=int)
+        mel_counters     = np.zeros(num_of_partitions, dtype=int)
+        mel_nev_counters = np.zeros(num_of_partitions, dtype=int)
+        bcc_counters     = np.zeros(num_of_partitions, dtype=int)
+        ak_counters      = np.zeros(num_of_partitions, dtype=int)
+        bk_counters      = np.zeros(num_of_partitions, dtype=int)
+        df_counters      = np.zeros(num_of_partitions, dtype=int)
+        vl_counters      = np.zeros(num_of_partitions, dtype=int)
+        scc_counters     = np.zeros(num_of_partitions, dtype=int)
 
-        for i, partition in enumerate(self.augmented_dataset_partitions):
-            partition_label_count = [0 for label in self.labels_for_the_labels]
-            for sample in partition:
-                partition_label_count[sample["label"]] += 1
+        for partition_index in range(num_of_partitions):
+            partition_data = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{partition_index}_augmented")
 
-            mel_counters[i] += partition_label_count[0]
-            mel_nev_counters[i] += partition_label_count[1]
-            bcc_counters[i] += partition_label_count[2]
-            ak_counters[i] += partition_label_count[3]
-            bk_counters[i] += partition_label_count[4]
-            df_counters[i] += partition_label_count[5]
-            vl_counters[i] += partition_label_count[6]
-            scc_counters[i] += partition_label_count[7]
+            partition_label_count = self.get_partition_label_count(partition=partition_data, partition_id=partition_index)
+
+            mel_counters[partition_index] += partition_label_count[0]
+            mel_nev_counters[partition_index] += partition_label_count[1]
+            bcc_counters[partition_index] += partition_label_count[2]
+            ak_counters[partition_index] += partition_label_count[3]
+            bk_counters[partition_index] += partition_label_count[4]
+            df_counters[partition_index] += partition_label_count[5]
+            vl_counters[partition_index] += partition_label_count[6]
+            scc_counters[partition_index] += partition_label_count[7]
 
         plt.bar(indicies_partitions, mel_counters, bar_width, label="mel")
         plt.bar(indicies_partitions, mel_nev_counters, bar_width, bottom=mel_counters, label="mel-nev")
@@ -360,12 +419,6 @@ class FedISIC2019_Dataset():
         return
 
 
-
-
-    
-
-
-
 def plot_dataloader_batch(dataloader, num_images=8):
         # Grab one batch
         batch = next(iter(dataloader))
@@ -386,19 +439,14 @@ def plot_dataloader_batch(dataloader, num_images=8):
     
         plt.tight_layout()
         plt.show()
-  
-
-
 
 if __name__ == "__main__":
     dataset = FedISIC2019_Dataset(67)
 
-    #augmented_partitions = dataset.augment_dataset(0)
-    #dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partitions[1])
+    dataset.augment_dataset(0)
+    augmented_partition = datasets.Dataset.load_from_disk("dataset_proccesed_data/partition0_augmented")
+    dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partition)
 
 
-    #plot_dataloader_batch(dataloader_train_part1)
-    #print({"DatasetObjSeed": dataset.seed, "train": list(train_worker_seeds), "test": list(test_worker_seeds)})
-    aug_partitions = dataset.augment_dataset(0)
-    for partition in aug_partitions:
-        print(partition)
+    plot_dataloader_batch(dataloader_train_part1)
+    print({"DatasetObjSeed": dataset.seed, "train": list(train_worker_seeds), "test": list(test_worker_seeds)})
