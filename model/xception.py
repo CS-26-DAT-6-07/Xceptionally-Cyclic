@@ -29,11 +29,6 @@ import torch
 
 __all__ = ['xception']
 
-model_urls = {
-#     'xception':'https://www.dropbox.com/s/1hplpzet9d7dv29/xception-c0a72b38.pth.tar?dl=1'
-    'xception':'http://data.lip6.fr/cadene/pretrainedmodels/xception-43020ad28.pth'
-}
-
 
 class SeparableConv2d(nn.Module):
     def __init__(self,in_channels,out_channels,kernel_size=1,stride=1,padding=0,dilation=1,bias=False):
@@ -203,12 +198,12 @@ class Xception(nn.Module):
 
 
 
-def xception(pretrained=False,**kwargs):
+def xception(**kwargs):
     """
     Construct Xception.
     """
 
     model = Xception(**kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['xception']))
+    #if pretrained:
+    #    model.load_state_dict(model_zoo.load_url(model_urls['xception']))
     return model
