@@ -101,7 +101,7 @@ class Xception(nn.Module):
     Xception optimized for the ImageNet dataset, as specified in
     https://arxiv.org/pdf/1610.02357.pdf
     """
-    def __init__(self, num_classes=1000):
+    def __init__(self, num_classes=8):
         """ Constructor
         Args:
             num_classes: number of classes
@@ -142,7 +142,8 @@ class Xception(nn.Module):
         self.conv4 = SeparableConv2d(1536,2048,3,1,1)
         self.bn4 = nn.BatchNorm2d(2048)
 
-        self.fc = nn.Linear(2048, num_classes)
+        #In order to transform all the 2048 feature maps into 10, for which they become confidence maps for the classes
+        self.class_conv = nn.Conv2d(2048, num_classes, 1)
 
 
 
@@ -190,9 +191,11 @@ class Xception(nn.Module):
         x = self.bn4(x)
         x = self.relu(x)
 
+        #Produces confidence maps
+        x = self.class_conv(x)
+
         x = F.adaptive_avg_pool2d(x, (1, 1))
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
 
         return x
 
