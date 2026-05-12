@@ -17,7 +17,7 @@ from flwr_datasets.visualization import plot_label_distributions
 #Constants
 SIZE_IMG = 299
 
-
+dataset = None
 
 #Pickable unlike a nested function / For Pytorch dataloader
 class SeedWorker:
@@ -301,9 +301,9 @@ class FedISIC2019_Dataset():
 
         return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
     
-    def load_partition(self,partition):
+    def load_partition(self,partition, rep = 0):
         if self.dataloaders == None:
-            self.dataloaders, self.worker_seeds = self.generate_all_dataloaders(0)
+            self.dataloaders, self.worker_seeds = self.generate_all_dataloaders(rep)
             self.fds = None
         return self.dataloaders[partition]
 
@@ -442,7 +442,16 @@ class FedISIC2019_Dataset():
         
         return dataloaders, worker_seeds
 
-        
+def init_dataset(seed, rep):
+    global dataset
+    dataset = FedISIC2019_Dataset(seed)
+    dataset.load_partition(0, rep=rep)
+
+
+def load_partition(partition):
+    global dataset
+    return dataset.load_partition(partition)
+
 
 def plot_dataloader_batch(dataloader, num_images=8):
         # Grab one batch
