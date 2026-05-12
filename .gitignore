@@ -1,4 +1,6 @@
 .venv/
 .vscode/
 __pycache__/
+dataset/dataset_proccesed_data/*
+
 dataset_proccesed_data/
