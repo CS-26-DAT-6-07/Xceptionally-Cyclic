@@ -108,6 +108,7 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
                 "test": NaturalIdPartitioner(partition_by="center"),
             },
         )
+        
 
     train_partition = fds.load_partition(partition_id=partition_id, split="train")
     test_partition = fds.load_partition(partition_id=partition_id, split="test")

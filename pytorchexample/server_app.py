@@ -6,7 +6,9 @@ from flwr.serverapp import Grid, ServerApp
 #from flwr.serverapp.strategy import FedAvg
 from pytorchexample.custom_strategy import CustomStrategy
 
-from pytorchexample.task import Net, load_centralized_dataset, test
+from pytorchexample.task import Net, test
+from pytorchexample.models.xception import xception
+from pytorchexample.dataset.dataset import load_centralized_dataset, init_dataset
 
 # Create ServerApp
 app = ServerApp()
@@ -20,14 +22,14 @@ EDGE_GROUPS = {
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
-
+    init_dataset(seed=42,rep=0)
     # Read run config
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     num_rounds: int = context.run_config["num-server-rounds"]
     lr: float = context.run_config["learning-rate"]
 
     # Load global model
-    global_model = Net()
+    global_model = xception()
     arrays = ArrayRecord(global_model.state_dict())
 
     #Initialize strategy
