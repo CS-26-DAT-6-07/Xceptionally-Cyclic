@@ -28,7 +28,7 @@ def main(grid: Grid, context: Context) -> None:
     fraction_evaluate: float = context.run_config["fraction-evaluate"]
     num_rounds: int = context.run_config["num-server-rounds"]
     lr: float = context.run_config["learning-rate"]
-
+    
     # Load global model
     global_model = xception()
     arrays = ArrayRecord(global_model.state_dict())

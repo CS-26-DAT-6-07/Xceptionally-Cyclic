@@ -460,8 +460,9 @@ def load_partition(partition):
 def load_centralized_dataset():
     global dataset
     if dataset.global_dataloader == None:
+        temp = dataset.fds.load_split(split = "test").map(dataset.__map_image_to_standard_transformed_image)
         dataset.global_dataloader = DataLoader(
-                dataset=dataset.fds.load_split(split = "test").with_transform(dataset.test_dataset_transform).with_format('torch'),
+                dataset=temp.with_transform(dataset.normalize_and_tensorify_batch),#dataset.fds.load_split(split = "test").with_transform(dataset.normalize_and_tensorify_batch),
                 batch_size=32,
                 shuffle=False
             )
