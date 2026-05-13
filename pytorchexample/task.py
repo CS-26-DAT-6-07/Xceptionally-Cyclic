@@ -135,6 +135,8 @@ def train(net, trainloader, epochs, lr, device):
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
 
+    control_variate = #TODO implement getting the control variate during training as a function
+
     net.train()
     running_loss = 0.0
 
@@ -148,11 +150,16 @@ def train(net, trainloader, epochs, lr, device):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            control_variate()
 
             running_loss += loss.item()
 
+
+
+    avg_cv_loss = #TODO compute control variate loss here
+
     avg_train_loss = running_loss / (epochs * len(trainloader))
-    return avg_train_loss
+    return avg_train_loss, avg_cv_loss
 
 
 def test(net, testloader, device):

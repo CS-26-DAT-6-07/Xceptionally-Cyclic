@@ -4,7 +4,7 @@ import torch
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 #from flwr.serverapp.strategy import FedAvg
-from pytorchexample.custom_strategy import CustomStrategy
+from pytorchexample.custom_strategy import TreeStrategy
 
 from pytorchexample.task import Net, test
 from pytorchexample.models.xception import xception
@@ -34,9 +34,15 @@ def main(grid: Grid, context: Context) -> None:
     arrays = ArrayRecord(global_model.state_dict())
 
     #Initialize strategy
-    strategy = CustomStrategy(
-    edge_groups=EDGE_GROUPS,
-    fraction_evaluate=fraction_evaluate,
+    strategy = TreeStrategy(
+        edge_groups=EDGE_GROUPS,
+        fraction_evaluate=fraction_evaluate,
+    )
+
+    strategy = Scaffold(
+        initial_parameters=arrays,
+        lr=lr,
+        fraction_evaluate=fraction_evaluate,
     )
     
     #strategy = FedAvg(
@@ -52,6 +58,7 @@ def main(grid: Grid, context: Context) -> None:
         train_config=ConfigRecord({"lr": lr}),
         num_rounds=num_rounds,
         evaluate_fn=global_evaluate,
+        #TODO add control variate
     )
 
     # Save final model to disk

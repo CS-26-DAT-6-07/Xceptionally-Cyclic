@@ -28,6 +28,8 @@ def train(msg: Message, context: Context):
     num_partitions = context.node_config["num-partitions"]
     batch_size = context.run_config["batch-size"]
     trainloader, _ = load_partition(partition_id)
+    # Load control variate from message content
+    control_variate = msg.content.get("control_variate")
 
     # Call the training function
     train_loss = train_fn(
@@ -40,6 +42,7 @@ def train(msg: Message, context: Context):
 
     feature_vector = extracting_clients_feature_vector(model, trainloader, device, partition_id)
 
+
     # Construct and return reply Message
     model_record = ArrayRecord(model.state_dict())
     metrics = {
@@ -47,6 +50,7 @@ def train(msg: Message, context: Context):
         "num-examples": len(trainloader.dataset),
         "feature_vector": feature_vector,
         "partition_id": partition_id,
+        "control_variate_loss": control_variate_loss,
     }
     metric_record = MetricRecord(metrics)
     content = RecordDict({"arrays": model_record, "metrics": metric_record})

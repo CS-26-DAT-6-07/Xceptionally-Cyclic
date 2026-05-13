@@ -5,10 +5,7 @@ from flwr.serverapp.strategy import FedAvg
 from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
 
 
-STRATEGY_NAME = "Tree_Custom_Strategy"
-
-
-class CustomStrategy(FedAvg):
+class TreeStrategy(FedAvg):
     #edge_groups is which clients belong to which edge server
     def __init__(self, edge_groups, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -127,3 +124,78 @@ class CustomStrategy(FedAvg):
         return global_arrays, {
             "num-examples": sum(weights)
         }
+
+
+class Scaffold(FedAvg):
+    def __init__(self, initial_parameters: ArrayRecord, lr: float, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.initial_parameters = initial_parameters
+        self.lr = lr
+
+        """initialize global model parameters and control variate"""
+        self.keys: list[str] = list(initial_parameters.keys())
+
+        self.global_model = list[np.ndarray] = array_record_to_ndarrays(initial_parameters, self.keys)
+        self.global_control_variate = [np.zeros_like(param) for param in self.global_model]
+  
+
+    """configure next round - send global model and control variate to clients"""
+    def configure_train(
+        self,
+        server_round: int,
+        arrays: ArrayRecord,
+        config: ConfigRecord,
+        grid: Grid,
+    ) -> Iterable[Message]:
+
+        #Client sampling - same as FedAvg
+        if self.fraction_train == 0.0:
+            return []
+
+        num_nodes = int(len(list(grid.get_node_ids())) * self.fraction_train)
+        sample_size = max(num_nodes, self.min_train_nodes)
+        node_ids, num_total = sample_nodes(grid, self.min_available_nodes, sample_size)
+        log(
+            INFO,
+            "configure_train: Sampled %s nodes (out of %s)",
+            len(node_ids),
+            len(num_total),
+        )
+        config["server-round"] = server_round
+
+        #Construct message content with global model and control variate
+        record = RecordDict(
+            {
+                
+            }
+        )
+
+    #Construct and return messages to clients
+    return self._construct_messages(record, node_ids, MessageType.TRAIN)
+    
+    """aggregate client updates - update global model and control variate"""
+    def aggregate_train(
+        self,
+        server_round: int,
+        replies: Iterable[Message],
+    ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+        """Aggregate ArrayRecords and MetricRecords in the received Messages."""
+        valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
+
+        arrays, metrics = None, None
+        if valid_replies:
+            reply_contents = [msg.content for msg in valid_replies]
+
+            # Aggregate ArrayRecords
+            arrays = aggregate_arrayrecords(
+                reply_contents,
+                self.weighted_by_key,
+            ) 
+
+            # Aggregate MetricRecords (control variate is included in metrics)
+            metrics = self.train_metrics_aggr_fn(
+                reply_contents,
+                self.weighted_by_key,
+            )
+        return arrays, metrics
+
