@@ -1,129 +1,126 @@
-from sklearn.cluster import KMeans
+import torch
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from typing import Iterable, List, Tuple, Optional
 
-from flwr.serverapp.strategy import FedAvg
-from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
-
+from flwr.app import Message, ArrayRecord, MetricRecord, ConfigRecord
+from flwr.serverapp import Grid
+from flwr.serverapp.strategy import FedAvg 
+from sklearn.decomposition import PCA
 
 STRATEGY_NAME = "Tree_Custom_Strategy"
 
-
 class CustomStrategy(FedAvg):
-    #edge_groups is which clients belong to which edge server
     def __init__(self, edge_groups, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.edge_groups = edge_groups
 
-    #This currently just uses normal FedAvg client selection (Can change later)
-    #Runs BEFORE clients train
-    def configure_fit(self, server_round, arrays, config, grid):
-        return super().configure_fit(server_round, arrays, config, grid)
+    # This signature is the most compatible for Flower 1.26+
+    def configure_train(
+        self, 
+        server_round: int, 
+        arrays: ArrayRecord, 
+        config: ConfigRecord, 
+        grid: Grid
+    ) -> Iterable[Message]:
+        """Configure the next round of federated training."""
+        #print(f"------------- Round {server_round}: Configuring training -------------", flush=True)
+    
+        # THIS LINE MUST BE INDENTED
+        return super().configure_train(
+            server_round=server_round,
+            arrays=arrays,
+            config=config,
+            grid=grid
+        )
 
-    #Runs AFTER all selected clients finish training
-    def aggregate_fit(self, server_round, results, failures):
+    def aggregate_train(
+        self, 
+        server_round: int, 
+        replies: Iterable[Message]
+    ) -> Tuple[Optional[ArrayRecord], Optional[MetricRecord]]:
+        
+        #print("------------CUSTOM aggregate_train CALLED--------------", flush=True)
+        
+        # Convert to list so we can iterate multiple times
+        replies_list = list(replies)
+        if not replies_list:
+            return None, None
 
-        #STEP 1: EXTRACT FEATURE VECTORS FROM CLIENT RESULTS
+        # STEP 1: EXTRACT FEATURE VECTORS
         client_ids = []
         feature_vectors = []
+        for reply in replies_list:
+            metrics = reply.content.get("metrics", {})
+            client_ids.append(int(metrics.get("partition_id", 0)))
+            feature_vectors.append(metrics.get("feature_vector", []))
 
-        for client, fit_res in results:
-
-            #Metrics sent from client_app.py (Mesage)
-            metrics = fit_res.metrics
-
-            #Client partition id
-            client_ids.append(metrics["partition_id"])
-
-            #Hidden layer feature vector from client
-            feature_vectors.append(metrics["feature_vector"])
-
-        #Convert to numpy array for sklearn
+        # STEP 2: RUN K-MEANS CLUSTERING
         X = np.array(feature_vectors)
-
-        #STEP 2: RUN K-MEANS CLUSTERING
-        kmeans = KMeans(n_clusters=2, random_state=42, n_init="auto",)
+        num_clusters = min(2, len(X))
+        kmeans = KMeans(n_clusters=num_clusters, random_state=42, n_init="auto")
         cluster_labels = kmeans.fit_predict(X)
 
-        #STEP 3: CREATE NEW EDGE GROUPS FROM CLUSTERS
+        # STEP 3: CREATE NEW EDGE GROUPS
         new_edge_groups = {0: [], 1: []}
-
         for client_id, cluster_id in zip(client_ids, cluster_labels):
             new_edge_groups[int(cluster_id)].append(int(client_id))
-
-        #Update strategy edge groups dynamically
+        
         self.edge_groups = new_edge_groups
 
-        print("\nNew clustered edge groups:")
-        print(self.edge_groups)
+        #Only plot if we have more than 1 client
+        if len(X) > 1:
+            pca = PCA(n_components=2)
+            X_pca = pca.fit_transform(X)
+            plt.figure(figsize=(6, 4))
+            plt.scatter(X_pca[:, 0], X_pca[:, 1], c=cluster_labels, cmap='viridis')
+            for i, cid in enumerate(client_ids):
+                plt.annotate(f"C{cid}", (X_pca[i, 0], X_pca[i, 1]))
+            plt.title(f"Round {server_round} Clusters")
+            plt.savefig(f"round_{server_round}_clusters.png")
+            plt.close()
 
-        #STEP 4: GROUP CLIENT RESULTS BY EDGE SERVER
+        print(f"\nNew clustered edge groups: {self.edge_groups}") #Print the edge groups every round
 
-        edge_results = {0: [], 1: []}
-
-        for client, fit_res in results:
-
-            partid = client.node_config["partition-id"]
-
+        # STEP 4: GROUP REPLIES BY EDGE SERVER
+        edge_replies = {0: [], 1: []}
+        for reply in replies_list:
+            partid = int(reply.content["metrics"]["partition_id"])
             for edge_id, group in self.edge_groups.items():
-
                 if partid in group:
-                    edge_results[edge_id].append((client, fit_res))
+                    edge_replies[edge_id].append(reply)
                     break
 
-        #STEP 5: RUN FEDAVG INSIDE EACH EDGE SERVER
+        # STEP 5 & 6: AGGREGATE PER EDGE AND THEN GLOBALLY
         edge_aggregates = []
-
-        for edge_id, group_results in edge_results.items():
-
-            #Skip empety groups
-            if len(group_results) == 0:
+        for edge_id, group_messages in edge_replies.items():
+            if not group_messages:
                 continue
+            
+            # 1. Calculate the total examples for THIS edge group manually
+            group_examples = sum(int(msg.content["metrics"].get("num-examples", 0)) for msg in group_messages)
+            
+            edge_arrays, _ = super().aggregate_train(server_round, group_messages)
+            
+            if edge_arrays is not None:
+                # 2. Store the arrays and the manual count
+                edge_aggregates.append((edge_arrays, group_examples))
 
-            # Run normal FedAvg on ONLY this edge group
-            edge_arrays, edge_metrics = super().aggregate_fit(
-                server_round,
-                group_results,
-                [],
-            )
-
-            #Store edge-level aggregated model
-            edge_aggregates.append((edge_arrays, edge_metrics))
-
-        # Safety check
         if not edge_aggregates:
-            return None, {}
+            return None, None
 
+        # STEP 6 (Cont.): GLOBAL WEIGHTED AVERAGE
+        total_examples = sum(count for _, count in edge_aggregates)
+        
+        first_arrays, _ = edge_aggregates[0]
+        avg_state = {k: torch.zeros_like(v, dtype=torch.float32) 
+                     for k, v in first_arrays.to_torch_state_dict().items()}
 
-        #STEP 6: EXTRACT EDGE MODELS + THEIR WEIGHTS
-        arrays_list = []
-        weights = []
+        for arrays, count in edge_aggregates:
+            weight = count / total_examples
+            client_state = arrays.to_torch_state_dict()
+            for key in avg_state:
+                avg_state[key] += weight * client_state[key].to(torch.float32)
 
-        for arrays, metrics in edge_aggregates:
-
-            #Convert Flower parameters -> numpy arrays
-            arrays_list.append(parameters_to_ndarrays(arrays))
-
-            #Number of examples used in this edge
-            weights.append(metrics["num-examples"])
-
-        #STEP 7: GLOBAL AGGREGATION OF EDGE MODELS
-        avg_ndarrays = []
-
-        #Loop through each neural network layer
-        for layer_idx in range(len(arrays_list[0])):
-
-            #Weighted average of the layer across edge models
-            layer_sum = sum(
-                w * edge_model[layer_idx]
-                for w, edge_model in zip(weights, arrays_list)
-            )
-
-            avg_ndarrays.append(layer_sum / sum(weights))
-
-        #STEP 8: CONVERT BACK TO FLOWER FORMAT
-        global_arrays = ndarrays_to_parameters(avg_ndarrays)
-
-        #Return new global model
-        return global_arrays, {
-            "num-examples": sum(weights)
-        }
+        return ArrayRecord(avg_state), MetricRecord({"num-examples": total_examples})

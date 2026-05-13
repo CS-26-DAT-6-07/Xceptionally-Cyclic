@@ -12,42 +12,26 @@ from datasets import load_dataset
 from flwr_datasets import FederatedDataset
 from flwr_datasets.partitioner import NaturalIdPartitioner
 from torch.utils.data import DataLoader
+from .models.xception import Xception
 
 
-class Net(nn.Module):
-    def __init__(self): 
-        super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-
-        self.fc1 = nn.Linear(16 * 4 * 4, 120)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(120, 84)
-        self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(84, 8)  #  classes
+class Net(Xception):
+    def __init__(self) -> None:
+        super(Net, self).__init__(num_classes=8) #Should run the 2048 dimension Xception architecture, for 8 classes
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = self.adaptive_pool(x)
-
-        x = x.view(-1, 16 * 4 * 4)
-
-        x = self.relu1(self.fc1(x))
-        x = self.relu2(self.fc2(x))  #Doing this so we get fc2 output after ReLU
-        return self.fc3(x)
-
-#model = Net()
+        #forward logic is found in xception.py
+        return super().forward(x)
 
 fds = None  # Cache FederatedDataset
 
 def apply_train_transforms(batch):
     """Apply FLamby-style train transforms."""
-    size = 200
+    size = 299 #I changed 200 to 299
     train_transforms = albumentations.Compose(
         [
+            albumentations.Resize(333, 333), # Ensure the image is large enough
+            albumentations.RandomCrop(height=299, width=299),
             albumentations.RandomScale(scale_limit=0.07, p=1.0),
             albumentations.Rotate(limit=50, p=1.0),
             albumentations.RandomBrightnessContrast(
@@ -78,9 +62,10 @@ def apply_train_transforms(batch):
 
 def apply_test_transforms(batch):
     """Apply FLamby-style test transforms."""
-    size = 200
+    size = 299 #Changed 200 to 299
     test_transforms = albumentations.Compose(
         [
+            albumentations.Resize(333, 333),
             albumentations.CenterCrop(height=size, width=size, p=1.0),
             albumentations.Normalize(p=1.0),
         ]
@@ -121,7 +106,7 @@ def load_data(partition_id: int, num_partitions: int, batch_size: int):
     return trainloader, testloader
 
 
-def load_centralized_dataset(batch_size: int = 128):
+def load_centralized_dataset(batch_size: int = 16): #I changed batch_size from 128 to 32 
     """Load the full centralized test set for server-side evaluation."""
     test_dataset = load_dataset("flwrlabs/fed-isic2019", split="test")
     test_dataset = test_dataset.with_transform(apply_test_transforms)
@@ -138,6 +123,8 @@ def train(net, trainloader, epochs, lr, device):
     running_loss = 0.0
 
     for _ in range(epochs):
+        print("WE ARE AT LEAST TRAINING")
+        #print(f"Starting Epoch{epochs}")
         for batch in trainloader:
             images = batch["image"].to(device)
             labels = batch["label"].to(device)

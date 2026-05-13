@@ -43,6 +43,7 @@ def main(grid: Grid, context: Context) -> None:
     #    )
 
     # Start strategy, run FedAvg for `num_rounds`
+    # In server_app.py
     result = strategy.start(
         grid=grid,
         initial_arrays=arrays,
