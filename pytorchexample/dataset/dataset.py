@@ -8,6 +8,8 @@ import datasets
 from datasets import Dataset
 from PIL import Image
 import multiprocessing
+import os
+
 
 from torch.utils.data import DataLoader
 from flwr_datasets import FederatedDataset
@@ -304,7 +306,6 @@ class FedISIC2019_Dataset():
     def load_partition(self,partition, rep = 0):
         if self.dataloaders == None:
             self.dataloaders, self.worker_seeds = self.generate_all_dataloaders(rep)
-            self.fds = None
         return self.dataloaders[partition]
 
     def plot_in_partitions_train_class_distribution(self):
@@ -435,7 +436,7 @@ class FedISIC2019_Dataset():
         dataloaders = []
 
         for i in range(num_of_partitions):
-            dataset = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{i}_augmented")
+            dataset = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{i}_augmented").with_format("torch")
             dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds = self.generate_dataloader_for_dataset(dataset)
             dataloaders.append((dataloader_train,dataloader_test))
             worker_seeds.append((train_worker_seeds,test_worker_seeds))
@@ -444,7 +445,7 @@ class FedISIC2019_Dataset():
 
 def init_dataset(seed, rep):
     global dataset
-    dataset = FedISIC2019_Dataset(seed)
+    dataset = FedISIC2019_Dataset(seed)  
     dataset.load_partition(0, rep=rep)
 
 
@@ -452,6 +453,9 @@ def load_partition(partition):
     global dataset
     return dataset.load_partition(partition)
 
+def load_centralized_dataset():
+    global dataset
+    return dataset.fds.load_split(split = "test")
 
 def plot_dataloader_batch(dataloader, num_images=8):
         # Grab one batch
@@ -477,8 +481,8 @@ def plot_dataloader_batch(dataloader, num_images=8):
 
 if __name__ == "__main__":
     dataset = FedISIC2019_Dataset(67)
-
     dataset.augment_dataset(0)
+
     augmented_partition = datasets.Dataset.load_from_disk("dataset_proccesed_data/partition0_augmented")
     dataloader_train_part1, dataloader_test_part1, train_worker_seeds, test_worker_seeds = dataset.generate_dataloader_for_dataset(augmented_partition)
 
