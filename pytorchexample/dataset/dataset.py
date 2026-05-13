@@ -265,7 +265,7 @@ class FedISIC2019_Dataset():
 
     def normalize_and_tensorify_batch(self, batch):
         batch["image"] = [
-            self.normalize_transform(image=self.__to_numpy(img))["image"].to(dtype=torch.double)
+            self.normalize_transform(image=self.__to_numpy(img))["image"]
             for img in batch["image"]
         ]
         return batch

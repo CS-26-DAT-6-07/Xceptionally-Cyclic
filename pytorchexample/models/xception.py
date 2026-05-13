@@ -204,6 +204,7 @@ def xception(**kwargs):
     """
 
     model = Xception(**kwargs)
+    
     #if pretrained:
     #    model.load_state_dict(model_zoo.load_url(model_urls['xception']))
-    return model
+    return model.double()
