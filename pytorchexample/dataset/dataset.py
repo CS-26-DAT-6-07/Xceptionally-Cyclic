@@ -168,8 +168,9 @@ class FedISIC2019_Dataset():
         if(not quiet_output):
             print(f"Augmenting Partition {partition_id}")
         
-        #partition_data = self.fds.load_partition(partition_id, "train")
-        partition_data = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{partition_id}")
+        partition_data = self.fds.load_partition(partition_id, "train")
+
+        standardized_partition_data = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{partition_id}")
 
         #Adding oversampled images
         new_train = []
@@ -192,9 +193,9 @@ class FedISIC2019_Dataset():
             #Casting the features to match the original dataset
             new_train_ds = new_train_ds.cast(partition_data.features)
 
-            new_partition_ds =  datasets.concatenate_datasets([partition_data, new_train_ds])
+            new_partition_ds =  datasets.concatenate_datasets([standardized_partition_data, new_train_ds])
         else:
-            new_partition_ds = partition_data    
+            new_partition_ds = standardized_partition_data    
         
         new_partition_ds.save_to_disk(f"dataset_proccesed_data/partition{partition_id}")
         new_partition_ds = []
