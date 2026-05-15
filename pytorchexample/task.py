@@ -159,10 +159,14 @@ def scaffold_train(net, trainloader, epochs, lr, device, global_cv, local_cv):
     criterion = nn.CrossEntropyLoss().to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.0)
  
-    # TODO Save initial global parameters
+    # Save initial global parameters
+    init_global_params: dict[str, torch.Tensor] = {
+        key: value.detach().clone() for key, value in net.state_dict().items()
+        }
 
     net.train()
-    running_loss = 0.0
+    running_loss = 0.
+    num_steps = 0
  
     for _ in range(epochs):
         for batch in trainloader:
@@ -174,17 +178,44 @@ def scaffold_train(net, trainloader, epochs, lr, device, global_cv, local_cv):
             loss = criterion(outputs, labels)
             loss.backward()
 
-            #TODO scaffold gradient correction
+            #scaffold gradient correction
+            with torch.no_grad():
+                for name, param in net.named_parameters():
+                    if param.grad is None:
+                        continue
+                    if name not in local_cv or name not in global_cv:
+                        continue
+                    param.grad.data.add_(                                       #add correction term to original gradient
+                        global_cv[name].to(device) - local_cv[name].to(device)  #subtract client bias
+                    )
 
             optimizer.step()
  
             running_loss += loss.item()
+            num_steps += 1
  
     avg_train_loss = running_loss / (epochs * len(trainloader))
 
-    #TODO control variate update & add outputs
+    #update local model
+    updated_model = dict[str, torch.Tensor] = {
+        key: value.detach().clone() for key, value in net.state_dict().items()
+        }
+    
+    total_steps = max(num_steps, 1)
+    scaling_factor = 1.0 / (total_steps * lr)
 
-    return avg_train_loss
+    #compute new local control variate
+    new_local_cv = dict[str, torch.Tensor] = {}
+    cv_diff = dict[str, torch.Tensor] = {}
+
+    with torch.no_grad():
+        for key in init_global_params:
+            client_drift = init_global_params[key] - updated_model[key]                         #client drift
+            new_client_cv = local_cv[key] - global_cv[key] + scaling_factor * client_drift      #compute new cv for each client
+            new_local_cv[key] = new_client_cv                                                   #adding them all to a dict
+            cv_diff[key] = new_client_cv - local_cv[key]                                        #calculate cv difference
+
+    return avg_train_loss, updated_model, new_local_cv, cv_diff
 
 def test(net, testloader, device):
     """Evaluate the model on the test set."""

@@ -52,7 +52,7 @@ def train(msg: Message, context: Context):
     """
     
     # Call the scaffold training function
-    train_loss, something, new_local_cv, cv_diff = scaffold_train(
+    train_loss, updated_local_model, new_local_cv, cv_diff = scaffold_train(
         model,
         trainloader,
         context.run_config["local-epochs"],
