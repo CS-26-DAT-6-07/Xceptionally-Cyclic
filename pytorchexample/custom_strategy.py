@@ -132,11 +132,8 @@ class Scaffold(FedAvg):
         self.initial_parameters = initial_parameters
         self.lr = lr
 
-        """initialize global model parameters and control variate"""
-        self.keys: list[str] = list(initial_parameters.keys())
-
-        self.global_model = list[np.ndarray] = array_record_to_ndarrays(initial_parameters, self.keys)
-        self.global_control_variate = [np.zeros_like(param) for param in self.global_model]
+        """initialize control variate"""
+        self.global_cv: Optional[dict[str, torch.Tensor]] = None
   
 
     """configure next round - send global model and control variate to clients"""
@@ -163,10 +160,17 @@ class Scaffold(FedAvg):
         )
         config["server-round"] = server_round
 
+        #Save initial server param & set control variate to zero on first round
+        if self.global_cv is None:
+            state = arrays.to_torch_state_dict()
+            self.global_cv = {key: torch.zeros_like(value) for key, value in state.items()}
+
         #Construct message content with global model and control variate
         record = RecordDict(
             {
-                
+                "arrays": self.initial_parameters,
+                "config": config,
+                "control_variate": ArrayRecord(self.global_cv),
             }
         )
 
@@ -178,23 +182,15 @@ class Scaffold(FedAvg):
         self,
         server_round: int,
         replies: Iterable[Message],
-    ) -> tuple[ArrayRecord | None, MetricRecord | None]:
+    ) -> ArrayRecord:
         """Aggregate ArrayRecords and MetricRecords in the received Messages."""
         valid_replies, _ = self._check_and_log_replies(replies, is_train=True)
 
-        arrays, metrics = None, None
-        if valid_replies:
-            reply_contents = [msg.content for msg in valid_replies]
+        #TODO update global control variate using client updates
 
-            # Aggregate ArrayRecords
-            arrays = aggregate_arrayrecords(
-                reply_contents,
-                self.weighted_by_key,
-            ) 
+        
 
-            # Aggregate MetricRecords (control variate is included in metrics)
-            metrics = self.train_metrics_aggr_fn(
-                reply_contents,
-                self.weighted_by_key,
-            )
-        return arrays, metrics
+        #aggregate client model updates with FedAvg
+        return super().aggregate_train(server_round, replies)
+
+
