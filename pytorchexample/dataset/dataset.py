@@ -313,7 +313,7 @@ class FedISIC2019_Dataset():
 
         dataloader_train = DataLoader(
             partition_train,
-            batch_size=32,
+            batch_size=16,
             shuffle=True,
             generator=generator,
             worker_init_fn=SeedWorker("train", train_worker_seeds),
@@ -322,7 +322,7 @@ class FedISIC2019_Dataset():
 
         dataloader_test = DataLoader(
             partition_test,
-            batch_size=32,
+            batch_size=16,
             shuffle=False,
             worker_init_fn=SeedWorker("test", test_worker_seeds),
             num_workers=4
