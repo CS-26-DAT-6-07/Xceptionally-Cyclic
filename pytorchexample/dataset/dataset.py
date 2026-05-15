@@ -9,6 +9,7 @@ from datasets import Dataset
 from PIL import Image
 import multiprocessing
 import os
+import json
 
 from torch.utils.data import DataLoader
 from flwr_datasets import FederatedDataset
@@ -229,6 +230,21 @@ class FedISIC2019_Dataset():
 
         return new_partition_ds
 
+    def __save_seed_totem(self):
+        seed_totem = {"seed": self.seed}
+        seed_totem = json.dumps(seed_totem)
+        with open("seed.json", "w") as f:
+            f.write(seed_totem)
+    
+    def __read_seed_totem(self):
+        if os.path.exists("seed.json"):   
+            seed_totem = None
+            with open("seed.json") as f:
+                seed_totem =  f.read()
+            return seed_totem
+        else:
+            print("PWD PATH::" + os.getcwd())
+            return None
 
     def augment_dataset(self, representative_partition: int, quiet_output = False):
         #Stage 1 - Loading a Partiton, Standardizing and counting labels.
@@ -262,6 +278,7 @@ class FedISIC2019_Dataset():
         if(not quiet_output):
             print("Finished augmenting the dataset")
         self._dataset_is_augmented = True
+        self.__save_seed_totem()
         return
 
     def normalize_and_tensorify_batch(self, batch):
@@ -312,6 +329,12 @@ class FedISIC2019_Dataset():
         return dataloader_train, dataloader_test, train_worker_seeds, test_worker_seeds
     
     def load_partition(self,partition, rep = 0):
+        if self.__read_seed_totem() is not None:
+            augmented_path = f"dataset_proccesed_data/partition{partition}_augmented"
+            if os.path.exists(augmented_path):
+                dataset_partition = datasets.Dataset.load_from_disk(augmented_path)
+                dataloader_train, dataloader_test, _, _ = self.generate_dataloader_for_dataset(dataset_partition)
+                return dataloader_train, dataloader_test
         if self.dataloaders == None:
             self.dataloaders, self.worker_seeds = self.generate_all_dataloaders(rep)
         return self.dataloaders[partition]
@@ -459,6 +482,24 @@ def init_dataset(seed, rep):
 
 def load_partition(partition):
     global dataset
+
+    if dataset is None:
+        seed = 0
+        try:
+            if os.path.exists("seed.json"):
+                with open("seed.json") as f:
+                    seed_data = json.load(f)
+                    seed = seed_data.get("seed", 0)
+        except Exception:
+            pass
+        dataset = FedISIC2019_Dataset(seed)
+
+    augmented_path = f"dataset_proccesed_data/partition{partition}_augmented"
+    if os.path.exists(augmented_path):
+        partition_dataset = datasets.Dataset.load_from_disk(augmented_path)
+        dataloader_train, dataloader_test, _, _ = dataset.generate_dataloader_for_dataset(partition_dataset)
+        return dataloader_train, dataloader_test
+
     return dataset.load_partition(partition)
 
 def load_centralized_dataset():
