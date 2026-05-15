@@ -168,7 +168,8 @@ class FedISIC2019_Dataset():
         if(not quiet_output):
             print(f"Augmenting Partition {partition_id}")
         
-        partition_data = self.fds.load_partition(partition_id, "train")
+        #partition_data = self.fds.load_partition(partition_id, "train")
+        partition_data = datasets.Dataset.load_from_disk(f"dataset_proccesed_data/partition{partition_id}")
 
         #Adding oversampled images
         new_train = []
