@@ -6,7 +6,7 @@ from flwr.clientapp import ClientApp
 
 from pytorchexample.task import Net, load_data
 from pytorchexample.task import test as test_fn
-from pytorchexample.task import train as train_fn
+from pytorchexample.task import train as train_fn, scaffold_train
 from pytorchexample.dataset.dataset import load_partition
 from pytorchexample.models.xception import xception
 
@@ -70,7 +70,7 @@ def train(msg: Message, context: Context):
     metrics = {
         "train_loss": train_loss,
         "num-examples": len(trainloader.dataset),
-        "feature_vector": feature_vector,
+        #"feature_vector": feature_vector,
         "partition_id": partition_id,
     }
     control_variate_update = ArrayRecord(cv_diff)
