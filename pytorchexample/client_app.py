@@ -4,7 +4,6 @@ import torch
 from flwr.app import ArrayRecord, Context, Message, MetricRecord, RecordDict
 from flwr.clientapp import ClientApp
 
-from pytorchexample.task import Net, load_data
 from pytorchexample.task import test as test_fn
 from pytorchexample.task import train as train_fn, scaffold_train
 from pytorchexample.dataset.dataset import load_partition
@@ -66,7 +65,7 @@ def train(msg: Message, context: Context):
     context.state["local_cv"] = ArrayRecord(new_local_cv)   
 
     # Construct and return reply Message
-    model_record = ArrayRecord(model.state_dict())
+    arrays = ArrayRecord(updated_local_model.state_dict())
     metrics = {
         "train_loss": train_loss,
         "num-examples": len(trainloader.dataset),
@@ -77,7 +76,7 @@ def train(msg: Message, context: Context):
     metric_record = MetricRecord(metrics)
     
     content = RecordDict({
-        "arrays": model_record,
+        "arrays": arrays,
         "control_variate": control_variate_update,
         "metrics": metric_record})
     return Message(content=content, reply_to=msg)

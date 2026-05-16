@@ -1,6 +1,7 @@
 from sklearn.cluster import KMeans
 import numpy as np
 import math
+import torch
 
 from collections.abc import Iterable
 from logging import INFO
@@ -141,7 +142,7 @@ class Scaffold(FedAvg):
         self.lr = lr
 
         """initialize control variate"""
-        self.global_cv: Optional[dict[str, torch.Tensor]] = None
+        self.global_cv: dict[str, torch.Tensor] | None = None
   
 
     """configure next round - send global model and control variate to clients"""
