@@ -295,7 +295,7 @@ class FedISIC2019_Dataset():
         self.normalize_and_tensorify_batch(batch)
         return batch
 
-    def generate_dataloader_for_dataset(self, partition_dataset: Dataset):
+    def generate_dataloader_for_dataset(self, partition_dataset: Dataset, batch_size=32):
         partition_dataset = partition_dataset.with_transform(self.normalize_and_tensorify_batch)
 
         partition_train_test = partition_dataset.train_test_split(test_size=0.2, seed=self.seed)
@@ -313,7 +313,7 @@ class FedISIC2019_Dataset():
 
         dataloader_train = DataLoader(
             partition_train,
-            batch_size=16,
+            batch_size=batch_size,
             shuffle=True,
             generator=generator,
             worker_init_fn=SeedWorker("train", train_worker_seeds),
@@ -322,7 +322,7 @@ class FedISIC2019_Dataset():
 
         dataloader_test = DataLoader(
             partition_test,
-            batch_size=16,
+            batch_size=batch_size,
             shuffle=False,
             worker_init_fn=SeedWorker("test", test_worker_seeds),
             num_workers=4
@@ -482,7 +482,7 @@ def init_dataset(seed, rep):
     dataset.load_partition(0, rep=rep)
 
 
-def load_partition(partition):
+def load_partition(partition, batch_size):
     global dataset
 
     if dataset is None:
@@ -499,7 +499,7 @@ def load_partition(partition):
     augmented_path = f"dataset_proccesed_data/partition{partition}_augmented"
     if os.path.exists(augmented_path):
         partition_dataset = datasets.Dataset.load_from_disk(augmented_path)
-        dataloader_train, dataloader_test, _, _ = dataset.generate_dataloader_for_dataset(partition_dataset)
+        dataloader_train, dataloader_test, _, _ = dataset.generate_dataloader_for_dataset(partition_dataset, batch_size)
         return dataloader_train, dataloader_test
 
     return dataset.load_partition(partition)

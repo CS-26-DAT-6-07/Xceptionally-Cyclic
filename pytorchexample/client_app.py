@@ -26,7 +26,7 @@ def train(msg: Message, context: Context):
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
     batch_size = context.run_config["batch-size"]
-    trainloader, _ = load_partition(partition_id)
+    trainloader, _ = load_partition(partition_id, batch_size)
 
     #Load strategy_choice sent from the server side
     strategy_choice = msg.content["config"]["strategy_choice"]
