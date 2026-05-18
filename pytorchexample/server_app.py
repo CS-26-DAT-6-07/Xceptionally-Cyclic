@@ -1,26 +1,21 @@
 """pytorchexample: A Flower / PyTorch app."""
-print("---------------- DEBUG: server_app.py is at least working ---------------", flush=True) 
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+
+#import torch and models dataset task before flwr stuff, otherwise crash on some systems
 import torch
+from pytorchexample.task import test 
+from pytorchexample.models.xception import xception
+from pytorchexample.dataset.dataset import load_centralized_dataset, init_dataset
+
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx
 from pytorchexample.custom_strategy import TreeStrategy, Scaffold
-print("---------------- DEBUG: Beep Boop 1 ---------------", flush=True) 
-from pytorchexample.task import test #Problem line 1
-print("---------------- DEBUG: Beep Boop 2 ---------------", flush=True) 
-from pytorchexample.models.xception import xception
-print("---------------- DEBUG: Beep Boop 3 ---------------", flush=True) 
-from pytorchexample.dataset.dataset import load_centralized_dataset, init_dataset #Problem Line 2
-print("---------------- DEBUG: app = Imports is not problem ---------------", flush=True) 
 
 init_dataset(seed=42,rep=0)
 
 # Create ServerApp
 app = ServerApp()
-print("---------------- DEBUG: app = ServerApp() is not problem ---------------", flush=True) 
-#Hardcoded two edge servers and which clients belong to each edge server
 
 EDGE_GROUPS = {
     0: [0, 1, 2],
@@ -29,7 +24,6 @@ EDGE_GROUPS = {
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    print("---------------- DEBUG: server_app.py main is working ---------------", flush=True) 
     """Main entry point for the ServerApp."""
 
     # Read run config
