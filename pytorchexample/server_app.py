@@ -1,21 +1,23 @@
 """pytorchexample: A Flower / PyTorch app."""
-print("---------------- DEBUG: server_app.py is at least working ---------------", flush=True) 
+
+
+#import torch and models dataset task before flwr stuff, otherwise crash on some systems
 import torch
+
+from pytorchexample.task import test 
+from pytorchexample.models.xception import xception
+from pytorchexample.dataset.dataset import load_centralized_dataset, init_dataset
+
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
 from flwr.serverapp.strategy import FedAvg, FedProx
 from pytorchexample.custom_strategy import TreeStrategy, Scaffold
 
-from pytorchexample.task import Net, test
-from pytorchexample.models.xception import xception
-from pytorchexample.dataset.dataset import load_centralized_dataset, init_dataset
-
-#init_dataset(seed=42,rep=0)
+init_dataset(seed=42,rep=0)
 
 # Create ServerApp
 app = ServerApp()
 
-#Hardcoded two edge servers and which clients belong to each edge server
 EDGE_GROUPS = {
     0: [0, 1, 2],
     1: [3, 4, 5],
@@ -23,7 +25,6 @@ EDGE_GROUPS = {
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    print("---------------- DEBUG: server_app.py main is working ---------------", flush=True) 
     """Main entry point for the ServerApp."""
 
     # Read run config
