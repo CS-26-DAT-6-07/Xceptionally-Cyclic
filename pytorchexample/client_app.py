@@ -28,6 +28,31 @@ def train(msg: Message, context: Context):
     batch_size = context.run_config["batch-size"]
     trainloader, _ = load_partition(partition_id)
 
+    #Load strategy_choice sent from the server side
+    strategy_choice = msg.content["config"]["strategy_choice"]
+
+    if strategy_choice == "fedavg":
+        # Call the training function (for FedAvg/FedProx)
+        train_loss, accuracy = train_fn(
+            model,
+            trainloader,
+            context.run_config["local-epochs"],
+            msg.content["config"]["lr"],
+            device,
+        )
+
+        metrics = {
+            "train_loss": train_loss,
+            "accuracy": accuracy,
+        }
+        
+        model_record = ArrayRecord(model.state_dict())
+        metric_record = MetricRecord(metrics)
+        content = RecordDict({"arrays": model_record, "metrics": metric_record})
+        return Message(content=content, reply_to=msg)
+
+        
+
     """ Part of Scaffold Strategy
     # Load control variate from message content
     global_control_variate = msg.content["global_cv"].to_torch_state_dict()
@@ -39,16 +64,7 @@ def train(msg: Message, context: Context):
         local_control_variate = {key: torch.zeros_like(value) for key, value in model.state_dict().items()}
     """
 
-    """
-    # Call the training function (for FedAvg/FedProx)
-    train_loss, accuracy = train_fn(
-        model,
-        trainloader,
-        context.run_config["local-epochs"],
-        msg.content["config"]["lr"],
-        device,
-    )
-    """
+    
 
     """ Part of the tree with clustering strat
     feature_vector = extracting_clients_feature_vector(model, trainloader, device, partition_id) 
