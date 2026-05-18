@@ -490,8 +490,8 @@ def load_partition(partition, batch_size):
         try:
             if os.path.exists("seed.json"):
                 with open("seed.json") as f:
-                    seed_data = json.load(f)
-                    seed = seed_data.get("seed", 0)
+                    seed_data : dict = json.load(f)
+                    seed = seed_data.get("seed", None)
         except Exception:
             pass
         dataset = FedISIC2019_Dataset(seed)
